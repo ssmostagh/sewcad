@@ -1,0 +1,32 @@
+{
+  "name": "pattern-studio-v2",
+  "version": "2.0.0",
+  "description": "Zero-dependency 2D/3D pattern CAD, XPBD cloth draping, procedural PBR textile authoring, STL unwrapping, and 1:1 physical cut-and-sew production studio.",
+  "type": "module",
+  "main": "./src/core/index.mjs",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "cli": "node src/cli.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:m1": "node --test test/m1_cad.test.mjs"
+  },
+  "dependencies": {
+    "three": "^0.174.0"
+  },
+  "keywords": [
+    "clo3d",
+    "substance3d",
+    "pattern-drafting",
+    "sewing",
+    "cloth-simulation",
+    "stl-unwrapping",
+    "cad",
+    "svg",
+    "dxf",
+    "pdf"
+  ],
+  "license": "MIT"
+}

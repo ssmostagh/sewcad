@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Local & exported 3D meshes / production exports
+*.stl
+*.STL
+*.obj
+*.OBJ
+out_*/
+
+# Logs & environment files
+*.log
+.env
+.env.*
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
