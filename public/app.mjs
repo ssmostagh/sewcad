@@ -67,6 +67,7 @@ import {
 const PARAMETRIC_SCHEMA = {
   bodice_sloper: [
     { key: 'chestMm', label: 'Full Bust Circumference', min: 720, max: 1480, step: 5, isLength: true },
+    { key: 'underbustMm', label: 'Underbust (Cup Frame)', min: 520, max: 1380, step: 5, isLength: true },
     { key: 'waistMm', label: 'Natural Waist', min: 560, max: 1360, step: 5, isLength: true },
     { key: 'lengthMm', label: 'Bodice Length (HPS to Waist)', min: 340, max: 560, step: 5, isLength: true },
     { key: 'shoulderWidthMm', label: 'Shoulder Width', min: 310, max: 500, step: 5, isLength: true },
@@ -77,6 +78,7 @@ const PARAMETRIC_SCHEMA = {
   ],
   princess_bodice: [
     { key: 'chestMm', label: 'Full Bust Circumference', min: 720, max: 1480, step: 5, isLength: true },
+    { key: 'underbustMm', label: 'Underbust (Cup Frame)', min: 520, max: 1380, step: 5, isLength: true },
     { key: 'waistMm', label: 'Natural Waist', min: 540, max: 1340, step: 5, isLength: true },
     { key: 'lengthMm', label: 'Bodice Length', min: 330, max: 540, step: 5, isLength: true },
     { key: 'shoulderWidthMm', label: 'Shoulder Width', min: 310, max: 500, step: 5, isLength: true },
@@ -87,6 +89,7 @@ const PARAMETRIC_SCHEMA = {
   ],
   fit_flare_dress: [
     { key: 'chestMm', label: 'Full Bust Circumference', min: 720, max: 1480, step: 5, isLength: true },
+    { key: 'underbustMm', label: 'Underbust (Cup Frame)', min: 520, max: 1380, step: 5, isLength: true },
     { key: 'waistMm', label: 'Natural Waist', min: 560, max: 1360, step: 5, isLength: true },
     { key: 'hipMm', label: 'Full Hip Circumference', min: 780, max: 1560, step: 5, isLength: true },
     { key: 'lengthMm', label: 'Bodice Length (HPS to Waist)', min: 340, max: 520, step: 5, isLength: true },
@@ -310,6 +313,7 @@ export const state = {
   showWire3D: false,
   showThreads3D: false,
   pinMode3D: false,
+  autoSyncBlockToForm: false,
   strainReport: null,
   avatarMeasurements: { ...DEFAULT_AVATAR_MEASUREMENTS },
   avatar: createParametricAvatar(DEFAULT_AVATAR_MEASUREMENTS),
@@ -336,15 +340,285 @@ export const state = {
     marginMm: 10,
     overlapMm: 15,
     layout: 'cad',
+    includeAssemblyMap: false,
+    skipBlankTiles: false,
   },
 };
+
+const DRAFT_STORAGE_KEY = 'sewcad_draft_v1';
 
 const history = new UndoRedoManager(50);
 let cad2D = null;
 let viewport3D = null;
 let toastTimer = null;
+let sliderSettleTimer = null;
+let draftSaveTimer = null;
+let suppressDraftSave = false;
 let templateLoadSeq = 0;
 let rafScheduled = false;
+
+const TOOL_LABELS = {
+  select: 'Move (V)',
+  edit_points: 'Points (A)',
+  draw_poly: 'Pen Poly (P)',
+  add_rect: 'Add Rect (R)',
+  split_edge: 'Split Edge (I)',
+  sew: 'Sew Seam (S)',
+  dart: 'Add Dart (D)',
+  notch: 'Notch (N)',
+  mirror: 'Unfold (M)',
+};
+
+const TOOL_HOTKEYS = {
+  v: 'select',
+  a: 'edit_points',
+  p: 'draw_poly',
+  r: 'add_rect',
+  i: 'split_edge',
+  s: 'sew',
+  d: 'dart',
+  n: 'notch',
+  m: 'mirror',
+};
+
+function readSavedUnitPref() {
+  try {
+    const raw = globalThis.localStorage?.getItem('psv2_unit');
+    if (raw === 'in' || raw === 'cm' || raw === 'mm') return raw;
+  } catch {
+    // ignore storage access issues
+  }
+  return 'in';
+}
+
+function saveUnitPref(u) {
+  if (!isLiveBrowserCanvas()) return;
+  try {
+    globalThis.localStorage?.setItem('psv2_unit', u);
+  } catch {
+    // ignore storage access issues
+  }
+}
+
+function activateInspectorTab(tabId) {
+  document.querySelectorAll('.inspector-tabs .tab-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset?.tab === tabId);
+  });
+  document.querySelectorAll('.tab-panel').forEach((p) => {
+    p.classList.toggle('active', p.id === tabId);
+  });
+}
+
+function syncContextualSidebarSections() {
+  const avDet = el('avatarDetails');
+  const stlDet = el('stlUnwrapDetails');
+  const tId = state.templateId;
+  if (tId === 'stl_cover') {
+    if (avDet) avDet.open = false;
+    if (stlDet) stlDet.open = true;
+  } else if (tId === 'tote_bag') {
+    if (avDet) avDet.open = false;
+    if (stlDet) stlDet.open = false;
+  } else {
+    if (avDet) avDet.open = true;
+    if (stlDet) stlDet.open = false;
+  }
+}
+
+function updatePdfSpecBadge() {
+  const badge = el('pdfSpecBadge');
+  if (!badge) return;
+  const fmt = String(state.exportOptions?.pageFormat || 'LETTER');
+  const shortFmt = fmt === 'LETTER' ? 'Letter' : fmt === 'TABLOID' ? 'Tabloid' : fmt;
+  const isNested = state.exportOptions?.layout === 'nested';
+  badge.textContent = isNested ? `${shortFmt}·Nest` : shortFmt;
+}
+
+function refreshAvatarPresetLabels() {
+  const sel = el('avSizePresetSelect');
+  const badge = el('avatarActiveBadge');
+  const u = state.unit;
+  const dec = u === 'mm' ? 0 : 1;
+  const unitSuffix = u === 'in' ? '"' : ` ${u}`;
+  if (sel && Array.isArray(sel.options || null) || (sel && sel.options && typeof sel.options.length === 'number')) {
+    const opts = Array.from(sel.options);
+    const usMap = {
+      XS: 'XS (US 2)',
+      S: 'S (US 4–6)',
+      M: 'M (US 8–10)',
+      L: 'L (US 12–14)',
+      XL: 'XL (US 16–18)',
+      '1X': '1X (US 20W)',
+      '2X': '2X (US 22–24W)',
+    };
+    for (const opt of opts) {
+      const p = WOMENS_SIZE_PRESETS[opt.value];
+      if (p && usMap[opt.value]) {
+        const b = mmToUnit(p.chestMm, u).toFixed(dec);
+        const w = mmToUnit(p.waistMm, u).toFixed(dec);
+        const h = mmToUnit(p.hipMm, u).toFixed(dec);
+        opt.textContent = `${usMap[opt.value]} — B ${b}${unitSuffix} / W ${w}${unitSuffix} / H ${h}${unitSuffix}`;
+      }
+    }
+  }
+  if (badge) {
+    const val = sel?.value || 'M';
+    badge.textContent = val === 'custom' ? 'Custom' : `Size ${val}`;
+  }
+}
+
+function syncActiveGarmentBlockToAvatarInPlace() {
+  if (!state.pattern || state.templateId === 'stl_cover' || state.templateId === 'tote_bag') {
+    return false;
+  }
+  const schema = PARAMETRIC_SCHEMA[state.templateId] || [];
+  if (schema.length === 0) return false;
+  const nextParams = { ...(state.pattern.params || {}) };
+  const av = state.avatarMeasurements;
+  let changed = false;
+  for (const s of schema) {
+    if (s.key === 'chestMm' && Number.isFinite(av.chestMm)) { nextParams.chestMm = av.chestMm; changed = true; }
+    if (s.key === 'underbustMm' && Number.isFinite(av.underbustMm)) { nextParams.underbustMm = av.underbustMm; changed = true; }
+    if (s.key === 'waistMm' && Number.isFinite(av.waistMm)) { nextParams.waistMm = av.waistMm; changed = true; }
+    if (s.key === 'hipMm' && Number.isFinite(av.hipMm)) { nextParams.hipMm = av.hipMm; changed = true; }
+    if (s.key === 'shoulderWidthMm' && Number.isFinite(av.shoulderWidthMm)) { nextParams.shoulderWidthMm = av.shoulderWidthMm; changed = true; }
+    if (s.key === 'bustSpanMm' && Number.isFinite(av.bustSpanMm)) { nextParams.bustSpanMm = av.bustSpanMm; changed = true; }
+  }
+  if (!changed) return false;
+  const matId = state.pattern.materialId;
+  state.pattern = generateTemplatePattern(state.templateId, nextParams);
+  if (matId) state.pattern.materialId = matId;
+  if (state.pattern?.pieces?.length && !state.pattern.pieces.some((p) => p.id === state.selectedPieceId)) {
+    state.selectedPieceId = state.pattern.pieces[0].id;
+    state.selectedVertexIndex = -1;
+    state.selectedEdgeIndex = 0;
+  }
+  return true;
+}
+
+function scheduleDebouncedSliderSettle() {
+  if (!isLiveBrowserCanvas() || state.simRunning) return;
+  if (sliderSettleTimer) clearTimeout(sliderSettleTimer);
+  sliderSettleTimer = setTimeout(() => {
+    sliderSettleTimer = null;
+    if (isLiveBrowserCanvas() && !state.simRunning) {
+      startBrowserAutoSettle(14, 34);
+    }
+  }, 130);
+}
+
+function clearSavedDraft() {
+  if (!isLiveBrowserCanvas()) return;
+  try {
+    globalThis.localStorage?.removeItem(DRAFT_STORAGE_KEY);
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function scheduleDraftSave() {
+  if (!isLiveBrowserCanvas() || suppressDraftSave || !state.pattern) return;
+  if (draftSaveTimer) clearTimeout(draftSaveTimer);
+  draftSaveTimer = setTimeout(() => {
+    draftSaveTimer = null;
+    if (!isLiveBrowserCanvas() || suppressDraftSave || !state.pattern) return;
+    try {
+      const payload = JSON.stringify({
+        v: 1,
+        savedAt: Date.now(),
+        templateId: state.templateId,
+        avPreset: el('avSizePresetSelect')?.value || 'M',
+        autoSyncBlockToForm: Boolean(state.autoSyncBlockToForm),
+        avatarMeasurements: state.avatarMeasurements,
+        materialOverrides: state.materialOverrides,
+        workspaceStlFile: state.activeStlSource?.workspaceFile || null,
+        patternJson: exportPatternJSON(state.pattern),
+      });
+      if (payload.length < 1_800_000) {
+        globalThis.localStorage?.setItem(DRAFT_STORAGE_KEY, payload);
+      }
+    } catch {
+      // ignore quota / storage access errors
+    }
+  }, 320);
+}
+
+async function tryRestoreDraftFromStorage() {
+  if (!isLiveBrowserCanvas()) return false;
+  try {
+    const search = String(globalThis.location?.search || '');
+    if (search.includes('fresh=1')) return false;
+    const raw = globalThis.localStorage?.getItem(DRAFT_STORAGE_KEY);
+    if (!raw || typeof raw !== 'string') return false;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.patternJson !== 'string') return false;
+    const restored = importPatternJSON(parsed.patternJson);
+    if (!Array.isArray(restored?.pieces) || restored.pieces.length === 0) return false;
+
+    suppressDraftSave = true;
+    try {
+      if (parsed.avatarMeasurements && typeof parsed.avatarMeasurements === 'object') {
+        state.avatarMeasurements = {
+          ...DEFAULT_WOMENS_AVATAR_MEASUREMENTS,
+          ...parsed.avatarMeasurements,
+          bodyType: 'womens',
+        };
+        state.avatar = createParametricAvatar(state.avatarMeasurements);
+      }
+      if (typeof parsed.autoSyncBlockToForm === 'boolean') {
+        state.autoSyncBlockToForm = parsed.autoSyncBlockToForm;
+        if (el('chkAutoSyncBlockToForm')) el('chkAutoSyncBlockToForm').checked = parsed.autoSyncBlockToForm;
+      }
+      if (typeof parsed.avPreset === 'string' && el('avSizePresetSelect')) {
+        el('avSizePresetSelect').value = parsed.avPreset;
+      }
+
+      const tplId = parsed.templateId || restored.templateId || 'bodice_sloper';
+      state.templateId = tplId;
+      state.pattern = restored;
+      state.materialOverrides =
+        parsed.materialOverrides && typeof parsed.materialOverrides === 'object'
+          ? { ...parsed.materialOverrides }
+          : {};
+      state.selectedPieceId = restored.pieces[0]?.id || null;
+      state.selectedEdgeIndex = 0;
+      state.selectedVertexIndex = -1;
+      state.pendingSeamEdge = null;
+
+      if (tplId === 'stl_cover' && typeof parsed.workspaceStlFile === 'string' && parsed.workspaceStlFile) {
+        try {
+          const stlRes = await fetch(`/api/stl-content?file=${encodeURIComponent(parsed.workspaceStlFile)}`);
+          if (stlRes.ok) {
+            const buf = await stlRes.arrayBuffer();
+            state.activeStlMesh = parseSTL(buf, parsed.workspaceStlFile);
+            state.activeStlSource = { workspaceFile: parsed.workspaceStlFile };
+          }
+        } catch {
+          // continue without 3D STL mesh if unavailable
+        }
+      }
+
+      if (el('templateSelect')) el('templateSelect').value = state.templateId;
+      syncContextualSidebarSections();
+      updateSTLMetadataUI(state.activeStlMesh, state.pattern);
+      rebuildSimulationAndMetrics(false);
+      startBrowserAutoSettle(28, 54);
+      history.clear();
+      renderParametricSliders();
+      updateMaterialUI();
+      updateAllInspectorUI();
+      cad2D?.fitToContent(build2DScene());
+      draw2D();
+      showToast('Restored your auto-saved draft (click ↺ Reset for fresh defaults)');
+      return true;
+    } finally {
+      suppressDraftSave = false;
+    }
+  } catch {
+    clearSavedDraft();
+    return false;
+  }
+}
 
 function el(id) {
   return document.getElementById(id);
@@ -580,7 +854,11 @@ function applyHistorySnapshot(snap) {
     el('seamWalkBar')?.classList.add('hidden');
   }
   if (el('templateSelect')) el('templateSelect').value = state.templateId;
+  syncContextualSidebarSections();
   rebuildSimulationAndMetrics(true);
+  if (isLiveBrowserCanvas() && !state.simRunning) {
+    startBrowserAutoSettle(18, 40);
+  }
   renderParametricSliders();
   updateMaterialUI();
   updateAllInspectorUI();
@@ -714,11 +992,14 @@ function updateHud2D() {
     return;
   }
   const extra = state.activeTool === 'draw_poly'
-    ? 'Click vertices, click start or double-click to close'
+    ? 'Click vertices, click start or double-click to close (Esc: cancel)'
     : state.activeTool === 'sew'
-      ? (state.pendingSeamEdge ? 'Click target Edge B to stitch' : 'Click Edge A to start sewing')
-      : 'Scroll: Zoom | Drag bg: Pan';
-  hud.textContent = `Tool: ${state.activeTool} | Pieces: ${pieceCount} | Active: ${selName} | ${extra}`;
+      ? (state.pendingSeamEdge ? 'Click target Edge B to stitch (Esc: cancel)' : 'Click Edge A to start sewing')
+      : state.activeTool === 'edit_points'
+        ? 'Drag vertices/curves (piece locked) | Click edge to inspect'
+        : 'Scroll: Zoom | Drag piece: Move | Shift+Drag bg: Pan';
+  const toolLabel = TOOL_LABELS[state.activeTool] || state.activeTool;
+  hud.textContent = `Tool: ${toolLabel} | Pieces: ${pieceCount} | Active: ${selName} | ${extra}`;
 }
 
 function updateHud3D() {
@@ -839,6 +1120,7 @@ function renderParametricSliders() {
 
     const valSpan = document.createElement('span');
     valSpan.className = 'slider-val';
+    valSpan.title = isOrphanStlCover ? '' : 'Click to type exact measurement';
     valSpan.textContent = item.isLength
       ? formatUnitValue(rawVal, state.unit, decimals)
       : rawVal.toFixed(2);
@@ -868,18 +1150,16 @@ function renderParametricSliders() {
     const endGesture = () => {
       gestureSnapshotPushed = false;
     };
-    slider.addEventListener('pointerdown', ensureGestureSnapshot);
-    slider.addEventListener('pointerup', endGesture);
-    slider.addEventListener('change', endGesture);
-    slider.addEventListener('blur', endGesture);
-    slider.addEventListener('input', () => {
-      if (state.templateId === 'stl_cover' && !state.activeStlMesh) return;
+
+    const applyParamMmValue = (targetMm, { settleNow = false } = {}) => {
+      if (state.templateId === 'stl_cover' && !state.activeStlMesh) return false;
+      const clampedMm = Math.max(item.min, Math.min(item.max, targetMm));
+      if (!Number.isFinite(clampedMm)) return false;
       cad2D?.cancelActiveDrag?.();
       const tx = capturePatternTx(false);
       ensureGestureSnapshot();
-      const nextMm = Number(slider.value);
       try {
-        const nextParams = { ...(state.pattern?.params || {}), [item.key]: nextMm };
+        const nextParams = { ...(state.pattern?.params || {}), [item.key]: clampedMm };
         if (state.templateId === 'stl_cover' && state.activeStlMesh) {
           state.pattern = unwrapSTLToPattern(state.activeStlMesh, {
             name: state.activeStlMesh.name,
@@ -922,18 +1202,122 @@ function renderParametricSliders() {
           state.seamWalk.walkT = 0;
           if (el('seamWalkBar')) el('seamWalkBar').classList.add('hidden');
         }
+        slider.value = String(clampedMm);
         rebuildSimulationAndMetrics(true);
+        if (settleNow) {
+          if (sliderSettleTimer) {
+            clearTimeout(sliderSettleTimer);
+            sliderSettleTimer = null;
+          }
+          if (isLiveBrowserCanvas() && !state.simRunning) {
+            startBrowserAutoSettle(20, 44);
+          }
+        } else {
+          scheduleDebouncedSliderSettle();
+        }
         valSpan.textContent = item.isLength
-          ? formatUnitValue(nextMm, state.unit, decimals)
-          : nextMm.toFixed(2);
+          ? formatUnitValue(clampedMm, state.unit, decimals)
+          : clampedMm.toFixed(2);
         updateAllInspectorUI();
         draw2D();
+        return true;
       } catch (err) {
         rollbackPatternTx(tx, { refreshSliders: false });
         gestureSnapshotPushed = false;
         showToast(err?.message || 'Failed to update parameter', true);
+        return false;
+      }
+    };
+
+    slider.addEventListener('pointerdown', ensureGestureSnapshot);
+    slider.addEventListener('pointerup', () => {
+      endGesture();
+      if (isLiveBrowserCanvas() && !state.simRunning) {
+        if (sliderSettleTimer) {
+          clearTimeout(sliderSettleTimer);
+          sliderSettleTimer = null;
+        }
+        startBrowserAutoSettle(20, 44);
       }
     });
+    slider.addEventListener('change', () => {
+      endGesture();
+      if (isLiveBrowserCanvas() && !state.simRunning) {
+        if (sliderSettleTimer) {
+          clearTimeout(sliderSettleTimer);
+          sliderSettleTimer = null;
+        }
+        startBrowserAutoSettle(20, 44);
+      }
+    });
+    slider.addEventListener('blur', endGesture);
+    slider.addEventListener('input', () => {
+      applyParamMmValue(Number(slider.value), { settleNow: false });
+    });
+
+    if (!isOrphanStlCover) {
+      valSpan.addEventListener('click', () => {
+        if (header.querySelector?.('.slider-val-input')) return;
+        const curMm = Number.isFinite(state.pattern?.params?.[item.key])
+          ? state.pattern.params[item.key]
+          : Number(slider.value);
+        const editInp = document.createElement('input');
+        editInp.type = 'number';
+        editInp.className = 'slider-val-input';
+        editInp.step = 'any';
+        const curDisplay = item.isLength ? Number(mmToUnit(curMm, state.unit).toFixed(decimals)) : Number(curMm.toFixed(2));
+        editInp.value = String(curDisplay);
+        valSpan.classList.add('hidden');
+        header.appendChild(editInp);
+        editInp.focus?.();
+        editInp.select?.();
+
+        let closed = false;
+        const finishEdit = (commit) => {
+          if (closed) return;
+          closed = true;
+          const rawText = String(editInp.value || '').trim();
+          try {
+            header.removeChild(editInp);
+          } catch {
+            // ignore
+          }
+          valSpan.classList.remove('hidden');
+          if (!commit || rawText === '') {
+            endGesture();
+            return;
+          }
+          const parsed = Number(rawText);
+          if (!Number.isFinite(parsed)) {
+            endGesture();
+            return;
+          }
+          let nextMm = parsed;
+          if (item.isLength) {
+            try {
+              nextMm = unitToMm(parsed, state.unit);
+            } catch {
+              endGesture();
+              return;
+            }
+          }
+          ensureGestureSnapshot();
+          applyParamMmValue(nextMm, { settleNow: true });
+          endGesture();
+        };
+
+        editInp.addEventListener('keydown', (ke) => {
+          if (ke.key === 'Enter') {
+            ke.preventDefault();
+            finishEdit(true);
+          } else if (ke.key === 'Escape') {
+            ke.preventDefault();
+            finishEdit(false);
+          }
+        });
+        editInp.addEventListener('blur', () => finishEdit(true));
+      });
+    }
 
     row.appendChild(header);
     row.appendChild(slider);
@@ -1026,7 +1410,14 @@ function updatePieceInspectorUI() {
   }
 
   const piece = getSelectedPiece();
-  if (!piece) return;
+  const ctxBar = el('contextEdgeBar');
+  if (!piece) {
+    if (ctxBar) ctxBar.classList.add('hidden');
+    return;
+  }
+  if (ctxBar) {
+    ctxBar.classList.toggle('hidden', state.viewMode === 'nesting');
+  }
   state.selectedPieceId = piece.id;
 
   const unitDec = getUnitDecimals(state.unit);
@@ -1051,9 +1442,22 @@ function updatePieceInspectorUI() {
   state.selectedEdgeIndex = eIdx;
   const edge = piece.edges?.[eIdx] || {};
   const edgeLenMm = meas.edges?.[eIdx]?.netLengthMm ?? 0;
+  const curveType = inferCurveType(edge.curve);
   el('selectedEdgeBadge').textContent = `Edge ${eIdx + 1} (${formatUnitValue(edgeLenMm, state.unit, dec)})`;
   el('edgeSaInput').value = String(toDisplayNum(edge.seamAllowance ?? piece.seamAllowance ?? 10, unitDec));
-  el('edgeCurveSelect').value = inferCurveType(edge.curve);
+  el('edgeCurveSelect').value = curveType;
+
+  const ctxLbl = el('ctxSelectionLabel');
+  if (ctxLbl) {
+    const ptInfo = state.selectedVertexIndex >= 0 ? ` · Pt ${state.selectedVertexIndex + 1}` : '';
+    const lenShort = state.unit === 'in'
+      ? `${mmToUnit(edgeLenMm, 'in').toFixed(1)}"`
+      : formatUnitValue(edgeLenMm, state.unit, dec);
+    ctxLbl.textContent = `Edge ${eIdx + 1} · ${lenShort}${ptInfo}`;
+    ctxLbl.title = `${piece.name || piece.id} — Edge ${eIdx + 1} (${formatUnitValue(edgeLenMm, state.unit, dec)})`;
+  }
+  const ctxCurve = el('ctxCurveSelect');
+  if (ctxCurve) ctxCurve.value = curveType;
 
   const delVertBtn = el('btnDeleteSelectedVertex');
   if (delVertBtn) delVertBtn.disabled = (piece.points?.length || 0) <= 3;
@@ -1252,6 +1656,7 @@ function updateMaterialUI() {
       valNode.textContent = Number(cfg[spec.key]).toFixed(spec.decimals);
     }
   }
+  scheduleDraftSave();
 }
 
 function updateNestingBOMUI() {
@@ -1383,10 +1788,13 @@ function refreshUnitLabelsAndInputs() {
 
 function updateAllInspectorUI() {
   refreshUnitLabelsAndInputs();
+  refreshAvatarPresetLabels();
+  updatePdfSpecBadge();
   updatePieceInspectorUI();
   updateSeamDiagnosticsUI();
   updateNestingBOMUI();
   syncUndoRedoButtons();
+  scheduleDraftSave();
 }
 
 function buildMaterialSlidersOnce() {
@@ -1646,6 +2054,7 @@ export async function loadTemplate(templateId, customParams = {}) {
     state.pendingSeamEdge = null;
 
     updateSTLMetadataUI(state.activeStlMesh, state.pattern);
+    syncContextualSidebarSections();
     rebuildSimulationAndMetrics(false);
     startBrowserAutoSettle(30, 58);
     history.clear();
@@ -1760,6 +2169,7 @@ async function applyStlUnwrapFromMesh(mesh, rawPayload, expectedSeq = null, opti
     if (el('seamWalkBar')) el('seamWalkBar').classList.add('hidden');
 
     if (el('templateSelect')) el('templateSelect').value = 'stl_cover';
+    syncContextualSidebarSections();
     updateSTLMetadataUI(mesh, pattern);
     rebuildSimulationAndMetrics(preserveState);
     startBrowserAutoSettle(24, 52);
@@ -1900,6 +2310,12 @@ async function handleExport(format) {
     orientation: state.exportOptions.orientation,
     marginMm: state.exportOptions.marginMm,
     overlapMm: state.exportOptions.overlapMm,
+    ...(format === 'pdf'
+      ? {
+          includeAssemblyMap: Boolean(state.exportOptions.includeAssemblyMap),
+          skipBlankTiles: Boolean(state.exportOptions.skipBlankTiles),
+        }
+      : {}),
   };
 
   let nestDiag = null;
@@ -2025,6 +2441,7 @@ function setViewMode(view) {
     btn.classList.toggle('active', btn.dataset.view === view);
   });
   el('nestSheetSelectWrap')?.classList.toggle('hidden', view !== 'nesting');
+  el('contextEdgeBar')?.classList.toggle('hidden', view === 'nesting' || !getSelectedPiece());
   el('pane2DTitle').textContent = view === 'nesting'
     ? 'Fabric Roll Cut Nesting & Yield Layout'
     : '2D Pattern Drafting CAD (True Scale)';
@@ -2097,6 +2514,9 @@ function handleEdgeToolAction(tool, pieceId, edgeIndex, t) {
       });
       state.pendingSeamEdge = null;
       rebuildSimulationAndMetrics(true);
+      if (isLiveBrowserCanvas() && !state.simRunning) {
+        startBrowserAutoSettle(16, 36);
+      }
       updateAllInspectorUI();
       draw2D();
     } catch (err) {
@@ -2133,6 +2553,9 @@ function handleEdgeToolAction(tool, pieceId, edgeIndex, t) {
       reconcileSeamWalkState();
     }
     rebuildSimulationAndMetrics(true);
+    if (isLiveBrowserCanvas() && !state.simRunning && (tool === 'dart' || tool === 'mirror' || tool === 'split_edge')) {
+      startBrowserAutoSettle(16, 36);
+    }
     updateAllInspectorUI();
     draw2D();
   } catch (err) {
@@ -2178,6 +2601,29 @@ function bindUIEvents() {
     loadTemplate(e.target.value);
   });
 
+  el('btnResetBlock')?.addEventListener('click', async () => {
+    cad2D?.cancelActiveDrag?.();
+    const prevSnap = state.pattern ? history._snapshot(state) : null;
+    clearSavedDraft();
+    const ok = await loadTemplate(state.templateId || 'bodice_sloper');
+    if (ok) {
+      if (state.autoSyncBlockToForm) {
+        syncActiveGarmentBlockToAvatarInPlace();
+        rebuildSimulationAndMetrics(true);
+        startBrowserAutoSettle(20, 44);
+        renderParametricSliders();
+        updateAllInspectorUI();
+        cad2D?.fitToContent(build2DScene());
+        draw2D();
+      }
+      if (prevSnap) {
+        history.undoStack.push(prevSnap);
+        syncUndoRedoButtons();
+      }
+      showToast('Reset block to fresh defaults (Ctrl+Z to undo)');
+    }
+  });
+
   document.querySelectorAll('#viewModeGroup .seg-btn').forEach((btn) => {
     btn.addEventListener('click', () => setViewMode(btn.dataset.view));
   });
@@ -2188,6 +2634,7 @@ function bindUIEvents() {
   el('unitSelect')?.addEventListener('change', (e) => {
     cad2D?.cancelActiveDrag?.();
     state.unit = e.target.value;
+    saveUnitPref(state.unit);
     if (state.pattern) state.pattern.displayUnit = state.unit;
     renderParametricSliders();
     updateAllInspectorUI();
@@ -2339,31 +2786,52 @@ function bindUIEvents() {
   // Inspector Tabs
   document.querySelectorAll('.inspector-tabs .tab-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const target = btn.dataset.tab;
-      document.querySelectorAll('.inspector-tabs .tab-btn').forEach((b) => b.classList.toggle('active', b === btn));
-      document.querySelectorAll('.tab-panel').forEach((p) => p.classList.toggle('active', p.id === target));
+      activateInspectorTab(btn.dataset.tab);
     });
+  });
+
+  el('chkAutoSyncBlockToForm')?.addEventListener('change', (e) => {
+    state.autoSyncBlockToForm = Boolean(e.target.checked);
+    if (state.autoSyncBlockToForm) {
+      el('btnSyncBlockToAvatar')?.click();
+    }
   });
 
   // Women's Dress Form Size Presets & Custom Inputs
   el('avSizePresetSelect')?.addEventListener('change', (e) => {
     const presetKey = e.target.value;
     const preset = WOMENS_SIZE_PRESETS[presetKey];
-    if (!preset) return;
+    if (!preset) {
+      refreshAvatarPresetLabels();
+      return;
+    }
     const prevMeas = { ...state.avatarMeasurements };
     const prevAvatar = state.avatar;
     const tx = capturePatternTx(true);
     try {
+      if (state.autoSyncBlockToForm) {
+        history.push(state);
+      }
       state.avatarMeasurements = { ...preset };
       state.avatar = createParametricAvatar(state.avatarMeasurements);
+      const syncedBlock = state.autoSyncBlockToForm && syncActiveGarmentBlockToAvatarInPlace();
       refreshUnitLabelsAndInputs();
+      refreshAvatarPresetLabels();
       rebuildSimulationAndMetrics(true);
       startBrowserAutoSettle(20, 45);
-      showToast(`Dress form set to Women's ${preset.label}`);
+      if (syncedBlock) {
+        renderParametricSliders();
+        updateAllInspectorUI();
+        cad2D?.fitToContent(build2DScene());
+        draw2D();
+        showToast(`Sized dress form & garment block to Women's ${preset.label}`);
+      } else {
+        showToast(`Dress form set to Women's ${preset.label}`);
+      }
     } catch (err) {
       state.avatarMeasurements = prevMeas;
       state.avatar = prevAvatar;
-      rollbackPatternTx(tx);
+      rollbackPatternTx(tx, { refreshSliders: true });
       showToast(err?.message || 'Cannot apply size preset', true);
     }
   });
@@ -2373,24 +2841,11 @@ function bindUIEvents() {
       showToast('Select a garment block to match to the dress form.', true);
       return;
     }
-    const schema = PARAMETRIC_SCHEMA[state.templateId] || [];
-    if (schema.length === 0) return;
     cad2D?.cancelActiveDrag?.();
     const tx = capturePatternTx(true);
     try {
       history.push(state);
-      const nextParams = { ...(state.pattern.params || {}) };
-      const av = state.avatarMeasurements;
-      for (const s of schema) {
-        if (s.key === 'chestMm' && Number.isFinite(av.chestMm)) nextParams.chestMm = av.chestMm;
-        if (s.key === 'waistMm' && Number.isFinite(av.waistMm)) nextParams.waistMm = av.waistMm;
-        if (s.key === 'hipMm' && Number.isFinite(av.hipMm)) nextParams.hipMm = av.hipMm;
-        if (s.key === 'shoulderWidthMm' && Number.isFinite(av.shoulderWidthMm)) nextParams.shoulderWidthMm = av.shoulderWidthMm;
-        if (s.key === 'bustSpanMm' && Number.isFinite(av.bustSpanMm)) nextParams.bustSpanMm = av.bustSpanMm;
-      }
-      const matId = state.pattern.materialId;
-      state.pattern = generateTemplatePattern(state.templateId, nextParams);
-      if (matId) state.pattern.materialId = matId;
+      if (!syncActiveGarmentBlockToAvatarInPlace()) return;
       rebuildSimulationAndMetrics(true);
       startBrowserAutoSettle(24, 50);
       renderParametricSliders();
@@ -2416,17 +2871,27 @@ function bindUIEvents() {
       }
       const tx = capturePatternTx(true);
       try {
+        if (state.autoSyncBlockToForm) {
+          history.push(state);
+        }
         state.avatarMeasurements.bodyType = 'womens';
         state.avatarMeasurements[key] = mm;
         if (el('avSizePresetSelect')) el('avSizePresetSelect').value = 'custom';
+        refreshAvatarPresetLabels();
         e.target.value = String(toDisplayNum(mm, dec));
         state.avatar = createParametricAvatar(state.avatarMeasurements);
+        const syncedBlock = state.autoSyncBlockToForm && syncActiveGarmentBlockToAvatarInPlace();
         rebuildSimulationAndMetrics(true);
         startBrowserAutoSettle(16, 40);
+        if (syncedBlock) {
+          renderParametricSliders();
+          updateAllInspectorUI();
+          draw2D();
+        }
       } catch (err) {
         state.avatarMeasurements[key] = prevMm;
         state.avatar = prevAvatar;
-        rollbackPatternTx(tx);
+        rollbackPatternTx(tx, { refreshSliders: true });
         e.target.value = String(toDisplayNum(prevMm, dec));
         showToast(err?.message || 'Cannot update avatar measurement', true);
       }
@@ -2619,9 +3084,29 @@ function bindUIEvents() {
     try {
       history.push(state);
       piece.onFold = e.target.checked;
+      const edges = ensurePieceEdges(piece);
+      const eIdx = Math.max(0, Math.min(edges.length - 1, state.selectedEdgeIndex || 0));
+      const edge = edges[eIdx];
+      let foldNote = '';
+      if (edge) {
+        if (piece.onFold) {
+          const prevEdgeSa = edge.seamAllowance ?? piece.seamAllowance ?? 12;
+          if (prevEdgeSa > 0) {
+            edge._prevSaBeforeFold = prevEdgeSa;
+            edge.seamAllowance = 0;
+            foldNote = `Cut On Fold enabled — Edge ${eIdx + 1} seam allowance set to 0`;
+          }
+        } else if ((edge.seamAllowance ?? 0) === 0) {
+          edge.seamAllowance = Number.isFinite(edge._prevSaBeforeFold)
+            ? edge._prevSaBeforeFold
+            : (piece.seamAllowance ?? 12);
+          delete edge._prevSaBeforeFold;
+        }
+      }
       rebuildNesting();
       updateAllInspectorUI();
       draw2D();
+      if (foldNote) showToast(foldNote);
     } catch (err) {
       rollbackPatternTx(tx);
       e.target.checked = prevFold;
@@ -2711,9 +3196,31 @@ function bindUIEvents() {
     }
   });
 
+  const applySelectedEdgeSaMm = (mm, toastMsg = null) => {
+    cad2D?.cancelActiveDrag?.();
+    const piece = getSelectedPiece();
+    if (!piece || !Number.isFinite(mm)) return;
+    const edges = ensurePieceEdges(piece);
+    const eIdx = Math.max(0, Math.min(edges.length - 1, state.selectedEdgeIndex || 0));
+    const edge = edges[eIdx];
+    if (!edge) return;
+    const clampedMm = Math.max(0, Math.min(80, Number(mm.toFixed(3))));
+    const tx = capturePatternTx(true);
+    try {
+      history.push(state);
+      edge.seamAllowance = clampedMm;
+      rebuildNesting();
+      updateAllInspectorUI();
+      draw2D();
+      if (toastMsg) showToast(toastMsg);
+    } catch (err) {
+      rollbackPatternTx(tx);
+      showToast(err?.message || 'Cannot update edge seam allowance', true);
+    }
+  };
+
   // Edge controls
   el('edgeSaInput')?.addEventListener('change', (e) => {
-    cad2D?.cancelActiveDrag?.();
     const piece = getSelectedPiece();
     if (!piece) return;
     const edges = ensurePieceEdges(piece);
@@ -2727,22 +3234,26 @@ function bindUIEvents() {
       );
       return;
     }
-    const prevEdgeSa = edge.seamAllowance ?? piece.seamAllowance ?? 10;
-    const tx = capturePatternTx(true);
-    try {
-      history.push(state);
-      edge.seamAllowance = mm;
-      rebuildNesting();
-      updateAllInspectorUI();
-      draw2D();
-    } catch (err) {
-      rollbackPatternTx(tx);
-      e.target.value = String(toDisplayNum(prevEdgeSa, getUnitDecimals(state.unit)));
-      showToast(err?.message || 'Cannot update edge seam allowance', true);
-    }
+    applySelectedEdgeSaMm(mm);
   });
 
-  el('edgeCurveSelect')?.addEventListener('change', (e) => {
+  document.querySelectorAll('[data-sa-mm]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const targetMm = Number(btn.getAttribute('data-sa-mm') ?? btn.dataset?.saMm);
+      if (Number.isFinite(targetMm)) {
+        const label = targetMm === 0
+          ? 'Set selected edge SA to 0 (Fold)'
+          : `Set selected edge SA to ${formatUnitValue(targetMm, state.unit, state.unit === 'mm' ? 1 : 2)}`;
+        applySelectedEdgeSaMm(targetMm, label);
+      }
+    });
+  });
+
+  el('btnCtxZeroSa')?.addEventListener('click', () => {
+    applySelectedEdgeSaMm(0, 'Set selected edge SA to 0 (Fold)');
+  });
+
+  const applySelectedEdgeCurveMode = (mode) => {
     cad2D?.cancelActiveDrag?.();
     const piece = getSelectedPiece();
     if (!piece) return;
@@ -2753,7 +3264,6 @@ function bindUIEvents() {
     const tx = capturePatternTx(true);
     try {
       history.push(state);
-      const mode = e.target.value;
       const p0 = piece.points[eIdx];
       const p1 = piece.points[(eIdx + 1) % piece.points.length];
       const dx = p1.x - p0.x;
@@ -2780,13 +3290,19 @@ function bindUIEvents() {
         };
       }
       rebuildSimulationAndMetrics(true);
+      if (isLiveBrowserCanvas() && !state.simRunning) {
+        startBrowserAutoSettle(16, 36);
+      }
       updateAllInspectorUI();
       draw2D();
     } catch (err) {
       rollbackPatternTx(tx);
       showToast(err?.message || 'Cannot update edge curve', true);
     }
-  });
+  };
+
+  el('edgeCurveSelect')?.addEventListener('change', (e) => applySelectedEdgeCurveMode(e.target.value));
+  el('ctxCurveSelect')?.addEventListener('change', (e) => applySelectedEdgeCurveMode(e.target.value));
 
   el('btnSplitSelectedEdge')?.addEventListener('click', () => {
     if (state.selectedPieceId) handleEdgeToolAction('split_edge', state.selectedPieceId, state.selectedEdgeIndex, 0.5);
@@ -2800,6 +3316,23 @@ function bindUIEvents() {
   });
   el('btnQuickNotch')?.addEventListener('click', () => {
     if (state.selectedPieceId) handleEdgeToolAction('notch', state.selectedPieceId, state.selectedEdgeIndex, 0.5);
+  });
+
+  // Contextual 2D Canvas Edge Quick-Action Bar
+  el('btnCtxSplit')?.addEventListener('click', () => {
+    if (state.selectedPieceId) handleEdgeToolAction('split_edge', state.selectedPieceId, state.selectedEdgeIndex, 0.5);
+  });
+  el('btnCtxUnfold')?.addEventListener('click', () => {
+    if (state.selectedPieceId) handleEdgeToolAction('mirror', state.selectedPieceId, state.selectedEdgeIndex, 0.5);
+  });
+  el('btnCtxDart')?.addEventListener('click', () => {
+    if (state.selectedPieceId) handleEdgeToolAction('dart', state.selectedPieceId, state.selectedEdgeIndex, 0.5);
+  });
+  el('btnCtxNotch')?.addEventListener('click', () => {
+    if (state.selectedPieceId) handleEdgeToolAction('notch', state.selectedPieceId, state.selectedEdgeIndex, 0.5);
+  });
+  el('btnCtxOpenPieceTab')?.addEventListener('click', () => {
+    activateInspectorTab('tabPiece');
   });
 
   // Material Studio
@@ -3016,7 +3549,10 @@ function bindUIEvents() {
     }
   });
 
-  el('pdfFormatSelect')?.addEventListener('change', (e) => { state.exportOptions.pageFormat = e.target.value; });
+  el('pdfFormatSelect')?.addEventListener('change', (e) => {
+    state.exportOptions.pageFormat = e.target.value;
+    updatePdfSpecBadge();
+  });
   el('pdfOrientationSelect')?.addEventListener('change', (e) => { state.exportOptions.orientation = e.target.value; });
   el('pdfMarginInput')?.addEventListener('change', (e) => {
     const dec = getUnitDecimals(state.unit);
@@ -3038,19 +3574,48 @@ function bindUIEvents() {
     state.exportOptions.overlapMm = mm;
     e.target.value = String(toDisplayNum(mm, dec));
   });
-  el('exportLayoutSelect')?.addEventListener('change', (e) => { state.exportOptions.layout = e.target.value; });
+  el('exportLayoutSelect')?.addEventListener('change', (e) => {
+    state.exportOptions.layout = e.target.value;
+    updatePdfSpecBadge();
+  });
+  el('chkPdfAssemblyMap')?.addEventListener('change', (e) => {
+    state.exportOptions.includeAssemblyMap = Boolean(e.target.checked);
+  });
+  el('chkPdfSkipBlank')?.addEventListener('change', (e) => {
+    state.exportOptions.skipBlankTiles = Boolean(e.target.checked);
+  });
+
+  const closeExportMenu = () => {
+    const menu = el('fileExportMenu');
+    if (menu) menu.open = false;
+  };
 
   // Export & Import buttons
   el('btnExportSVG')?.addEventListener('click', () => handleExport('svg'));
   el('btnExportPDF')?.addEventListener('click', () => handleExport('pdf'));
-  el('btnExportDXF')?.addEventListener('click', () => handleExport('dxf'));
-  el('btnExportJSON')?.addEventListener('click', () => handleExport('json'));
+  el('btnExportDXF')?.addEventListener('click', () => { closeExportMenu(); handleExport('dxf'); });
+  el('btnExportJSON')?.addEventListener('click', () => { closeExportMenu(); handleExport('json'); });
   el('btnDownloadTiledPDFFull')?.addEventListener('click', () => handleExport('pdf'));
   el('btnDownloadSVGPanel')?.addEventListener('click', () => handleExport('svg'));
   el('btnDownloadDXFPanel')?.addEventListener('click', () => handleExport('dxf'));
   el('btnDownloadJSONPanel')?.addEventListener('click', () => handleExport('json'));
 
-  el('btnImportJSON')?.addEventListener('click', () => el('jsonFileInput')?.click());
+  el('btnImportJSON')?.addEventListener('click', () => {
+    closeExportMenu();
+    el('jsonFileInput')?.click();
+  });
+  el('btnMenuOpenExportTab')?.addEventListener('click', () => {
+    closeExportMenu();
+    activateInspectorTab('tabOutput');
+  });
+
+  // Quick-Start Guide Modal
+  const guideModal = el('quickGuideModal');
+  el('btnOpenGuide')?.addEventListener('click', () => guideModal?.classList.remove('hidden'));
+  el('btnCloseGuide')?.addEventListener('click', () => guideModal?.classList.add('hidden'));
+  guideModal?.addEventListener('click', (e) => {
+    if (e.target === guideModal) guideModal.classList.add('hidden');
+  });
   el('jsonFileInput')?.addEventListener('change', async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
@@ -3121,7 +3686,11 @@ function bindUIEvents() {
       }
       if (el('templateSelect')) el('templateSelect').value = state.templateId;
       updateSTLMetadataUI(state.activeStlMesh, state.pattern);
+      syncContextualSidebarSections();
       rebuildSimulationAndMetrics(false);
+      if (isLiveBrowserCanvas() && !state.simRunning) {
+        startBrowserAutoSettle(20, 44);
+      }
       renderParametricSliders();
       updateMaterialUI();
       updateAllInspectorUI();
@@ -3153,6 +3722,40 @@ function bindUIEvents() {
     const tag = document.activeElement?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
+    if (e.key === 'Escape') {
+      const gm = el('quickGuideModal');
+      if (gm && !gm.classList.contains('hidden')) {
+        e.preventDefault();
+        gm.classList.add('hidden');
+        return;
+      }
+      const expMenu = el('fileExportMenu');
+      if (expMenu && expMenu.open) {
+        e.preventDefault();
+        expMenu.open = false;
+        return;
+      }
+      const cancelledDrag = cad2D?.cancelActiveDrag?.();
+      if (cancelledDrag) {
+        e.preventDefault();
+        showToast('Cancelled active drag');
+        return;
+      }
+      if (
+        state.activeTool !== 'select' ||
+        state.pendingSeamEdge ||
+        (el('rectPopover') && !el('rectPopover').classList.contains('hidden'))
+      ) {
+        e.preventDefault();
+        cad2D?.clearPen?.();
+        state.pendingSeamEdge = null;
+        el('rectPopover')?.classList.add('hidden');
+        setActiveTool('select');
+        showToast('Returned to Move tool (V)');
+      }
+      return;
+    }
+
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
       e.preventDefault();
       if (e.shiftKey) performRedo();
@@ -3166,12 +3769,25 @@ function bindUIEvents() {
     }
     if (e.key === 'Delete' || e.key === 'Backspace') {
       handleDeleteSelectedVertex();
-    } else if (e.key === ' ') {
+      return;
+    }
+    if (e.key === ' ') {
       e.preventDefault();
       el('btnSimToggle')?.click();
-    } else if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-      cad2D?.fitToContent(build2DScene());
-      draw2D();
+      return;
+    }
+    if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+      const lower = e.key.toLowerCase();
+      if (lower === 'f') {
+        cad2D?.fitToContent(build2DScene());
+        draw2D();
+      } else if (e.key === '?') {
+        e.preventDefault();
+        el('quickGuideModal')?.classList.toggle('hidden');
+      } else if (Object.hasOwn(TOOL_HOTKEYS, lower)) {
+        e.preventDefault();
+        setActiveTool(TOOL_HOTKEYS[lower]);
+      }
     }
   });
 }
@@ -3239,6 +3855,9 @@ export async function initStudio() {
         try {
           history.popIfUnchanged(state);
           rebuildSimulationAndMetrics(true);
+          if (isLiveBrowserCanvas() && !state.simRunning) {
+            startBrowserAutoSettle(16, 36);
+          }
           updateAllInspectorUI();
           draw2D();
         } catch (err) {
@@ -3324,20 +3943,37 @@ export async function initStudio() {
   }
 
   if (isLiveBrowserCanvas()) {
+    state.unit = readSavedUnitPref();
+    if (el('unitSelect')) el('unitSelect').value = state.unit;
+    state.autoSyncBlockToForm = true;
+    if (el('chkAutoSyncBlockToForm')) el('chkAutoSyncBlockToForm').checked = true;
+    state.exportOptions.includeAssemblyMap = true;
+    state.exportOptions.skipBlankTiles = true;
+    if (el('chkPdfAssemblyMap')) el('chkPdfAssemblyMap').checked = true;
+    if (el('chkPdfSkipBlank')) el('chkPdfSkipBlank').checked = true;
     state.avatarMeasurements = { ...DEFAULT_WOMENS_AVATAR_MEASUREMENTS };
     state.avatar = createParametricAvatar(state.avatarMeasurements);
+  } else {
+    state.autoSyncBlockToForm = false;
+    state.exportOptions.includeAssemblyMap = false;
+    state.exportOptions.skipBlankTiles = false;
   }
 
   populateSelects();
   buildMaterialSlidersOnce();
   bindUIEvents();
+  syncContextualSidebarSections();
+  updatePdfSpecBadge();
   window.addEventListener('resize', handleResize);
   handleResize();
 
   const bootSeq = templateLoadSeq;
   await fetchInitialCatalogAndStls();
   if (templateLoadSeq === bootSeq) {
-    await loadTemplate(isLiveBrowserCanvas() ? 'bodice_sloper' : 'tshirt');
+    const restoredDraft = await tryRestoreDraftFromStorage();
+    if (!restoredDraft && templateLoadSeq === bootSeq) {
+      await loadTemplate(isLiveBrowserCanvas() ? 'bodice_sloper' : 'tshirt');
+    }
   }
   handleResize();
   scheduleAnimationLoop();

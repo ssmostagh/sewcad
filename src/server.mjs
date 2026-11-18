@@ -193,6 +193,8 @@ const OPTION_BOOLEAN_FIELDS = [
   'includeLabels',
   'showGrid',
   'tileMarks',
+  'includeAssemblyMap',
+  'skipBlankTiles',
 ];
 
 const REQUEST_ENVELOPE_KEYS = new Set(['pattern', 'format', 'options']);

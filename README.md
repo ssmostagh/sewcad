@@ -1,10 +1,10 @@
-# Pattern Studio v2 — Women's 2D/3D Garment CAD, Draping & 1:1 Production
+# SewCAD — Women's 2D/3D Garment CAD, Draping & 1:1 Production
 
-Browser-based 2D/3D garment pattern-drafting CAD, contoured women's 3D dress-form draping (XPBD cloth + dart/seam physics), Three.js PBR textile studio, `.stl` object-cover unwrapping, and true-scale 1:1 physical cut-and-sew export (`SVG`, multi-page `Tiled PDF`, `DXF`, `JSON`).
+Browser-based 2D/3D garment pattern-drafting CAD, contoured women's 3D dress-form draping (XPBD cloth + dart/seam physics), Three.js PBR textile studio, `.stl` object-cover unwrapping, and true-scale 1:1 physical cut-and-sew export (`Tiled PDF` with Assembly Map, `1:1 SVG`, `DXF`, `JSON`).
 
-- **Women's Garment Blocks & Slopers**: Fitted Bodice Sloper (Bust + Waist Darts + Set-In Sleeves), 6-Panel Princess-Seam Bodice / Bustier, Fit-and-Flare Dress, A-Line Skirt + Waistband, Tailored Pencil Skirt, and High-Waisted Wide-Leg Trousers (plus Casual Tee, Hoodie, Straight Work Pants, Gusseted Tote Bag, and Custom 3D `.STL` Cover).
-- **Contoured Women's 3D Dress Form**: Standard women's size presets (`XS / US 2` through `2X / US 22–24W`) plus custom **Full Bust**, **Underbust**, **Waist**, **High Hip**, **Full Hip**, **Shoulder**, **Bust Span**, **HPS to Bust**, and **Height**, with 1-click **Match Block to Form**.
-- **Canonical Units**: All internal geometry, Bezier curve handles, seam allowances, cloth physics, and nesting operate in **millimeters (`mm`)** (`<= 0.1 mm` export accuracy), with live `mm` / `cm` / `in` display switching.
+- **Women's Garment Blocks & Cup-Aware FBA**: Fitted Bodice Sloper (Bust + Waist Darts + Set-In Sleeves), 6-Panel Princess-Seam Bodice / Bustier, Fit-and-Flare Dress, A-Line Skirt + Waistband, Tailored Pencil Skirt, and High-Waisted Wide-Leg Trousers—with automatic **Underbust / Cup-Projection Full Bust Adjustment (FBA)** that scales front bust darts, princess curves, and over-bust length without distorting shoulder or back frame width (plus Tee, Hoodie, Work Pants, Gusseted Tote Bag, and Custom 3D `.STL` Cover).
+- **Contoured Women's 3D Dress Form & Auto-Save**: Standard women's size presets (`XS / US 2` through `2X / US 22–24W`) plus custom **Full Bust**, **Underbust**, **Waist**, **High Hip**, **Full Hip**, **Shoulder**, **Bust Span**, **HPS to Bust**, and **Height**, live **Auto-fit garment to form**, and automatic local browser draft persistence.
+- **Home-Printer Friendly 1:1 Exports**: Multi-page Letter/A4/Tabloid/A0 `Tiled PDF` with a **Page-1 Tile Assembly Map**, **blank-tile skipping**, corner alignment diamonds, `2.00 × 2.00 in` / `50.0 × 50.0 mm` calibration squares, and `Cut On Fold` (`0` fold-edge SA) + hem allowance presets. Canonical `mm` internal geometry (`<= 0.1 mm` accuracy) with live `in` / `cm` / `mm` display switching.
 
 ---
 
@@ -38,7 +38,8 @@ ssh -L 4174:localhost:4174 <your-remote-host>
 ## Project Layout
 
 ```text
-pattern_studio_v2/
+sewcad/
+├── LICENSE                   # MIT License
 ├── package.json              # Node.js >=24 ESM config & npm scripts
 ├── README.md                 # Documentation
 ├── src/

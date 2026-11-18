@@ -1173,26 +1173,213 @@ export function exportTiledPDF(pattern, options = {}) {
     );
   }
 
+  const includeAssemblyMap = parseBoolFlag(safeOptions.includeAssemblyMap);
+  const skipBlankTiles = parseBoolFlag(safeOptions.skipBlankTiles);
+
   const pageWPt = pageW * MM_TO_PT;
   const pageHPt = pageH * MM_TO_PT;
   const marginPt = marginMm * MM_TO_PT;
   const printableWPt = printableW * MM_TO_PT;
   const printableHPt = printableH * MM_TO_PT;
 
+  const pageAbsToPdfPt = (pxMm, pyMm) => [
+    pxMm * MM_TO_PT,
+    (pageH - pyMm) * MM_TO_PT,
+  ];
+
+  // Pre-evaluate which tiles contain at least one pattern piece
+  const tileActive = Array.from({ length: rows }, () => new Array(cols).fill(false));
+  let activeTileCount = 0;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (!skipBlankTiles) {
+        tileActive[r][c] = true;
+        activeTileCount++;
+        continue;
+      }
+      const tOx = c * stepX;
+      const tOy = r * stepY;
+      const wMinX = tOx - 2;
+      const wMaxX = tOx + printableW + 2;
+      const wMinY = tOy - 2;
+      const wMaxY = tOy + printableH + 2;
+      let hit = false;
+      for (const p of prep.pieces) {
+        const b = p.renderBounds || p.cutBounds;
+        if (!(b.maxX < wMinX || b.minX > wMaxX || b.maxY < wMinY || b.minY > wMaxY)) {
+          hit = true;
+          break;
+        }
+      }
+      if (hit) {
+        tileActive[r][c] = true;
+        activeTileCount++;
+      }
+    }
+  }
+  if (activeTileCount === 0) {
+    tileActive[0][0] = true;
+    activeTileCount = 1;
+  }
+  const skippedTileCount = rows * cols - activeTileCount;
+
   const pageStreams = [];
+  const willEmitAssemblyMap = Boolean(includeAssemblyMap && activeTileCount + 1 <= MAX_PDF_TILES);
+
+  if (willEmitAssemblyMap) {
+    const mapOps = [];
+    // Frame
+    mapOps.push('q');
+    mapOps.push('0.70 0.70 0.70 RG 0.50 w [] 0 d');
+    mapOps.push(`${fmtNum(marginPt)} ${fmtNum(marginPt)} ${fmtNum(printableWPt)} ${fmtNum(printableHPt)} re S`);
+    mapOps.push('Q');
+
+    // Header & Summary
+    const [hdrX, hdrY] = pageAbsToPdfPt(marginMm + 6, marginMm + 7);
+    const mapTitle = `TILE ASSEMBLY MAP - ${prep.pattern.name || 'Pattern'} (${pageSpec.id} 1:1 - Print at 100% Actual Size)`;
+    mapOps.push('BT');
+    mapOps.push('/F1 9.0 Tf 0.08 0.10 0.15 rg');
+    mapOps.push(`1 0 0 1 ${fmtNum(hdrX)} ${fmtNum(hdrY)} Tm`);
+    mapOps.push(`(${encodePdfWinAnsiLiteral(mapTitle)}) Tj`);
+    mapOps.push('ET');
+
+    const [subX, subY] = pageAbsToPdfPt(marginMm + 6, marginMm + 13);
+    const skipNote = skippedTileCount > 0 ? ` (${skippedTileCount} blank skipped)` : '';
+    const subTitle = `Grid: ${cols} cols x ${rows} rows | Pattern Tiles: ${activeTileCount}${skipNote} | Overlap: ${overlapMm.toFixed(1)} mm | Page 1 = Overview + Scale Test`;
+    mapOps.push('BT');
+    mapOps.push('/F1 6.8 Tf 0.32 0.36 0.44 rg');
+    mapOps.push(`1 0 0 1 ${fmtNum(subX)} ${fmtNum(subY)} Tm`);
+    mapOps.push(`(${encodePdfWinAnsiLiteral(subTitle)}) Tj`);
+    mapOps.push('ET');
+
+    const hasMapCalBox = printableW >= 118 && printableH >= 135;
+    const mapTopMm = marginMm + 18;
+    const mapBottomReserveMm = hasMapCalBox ? 62 : 8;
+    const availMapW = Math.max(20, printableW - 14);
+    const availMapH = Math.max(24, printableH - 18 - mapBottomReserveMm);
+    const gridSpanW = Math.max(1, (cols - 1) * stepX + printableW);
+    const gridSpanH = Math.max(1, (rows - 1) * stepY + printableH);
+    const mScale = Math.min(availMapW / gridSpanW, availMapH / gridSpanH);
+    const drawW = gridSpanW * mScale;
+    const drawH = gridSpanH * mScale;
+    const mapOx = marginMm + (printableW - drawW) * 0.5;
+    const mapOy = mapTopMm + (availMapH - drawH) * 0.5;
+
+    const mapToPdfPt = (wxMm, wyMm) =>
+      pageAbsToPdfPt(mapOx + wxMm * mScale, mapOy + wyMm * mScale);
+
+    // Draw tile cells on assembly map
+    let nextPdfPageNo = 2;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const cellX0 = c * stepX;
+        const cellY0 = r * stepY;
+        const cellW = c < cols - 1 ? stepX : printableW;
+        const cellH = r < rows - 1 ? stepY : printableH;
+        const [rxPt, ryBottomPt] = mapToPdfPt(cellX0, cellY0 + cellH);
+        const rwPt = cellW * mScale * MM_TO_PT;
+        const rhPt = cellH * mScale * MM_TO_PT;
+        const code = `${colIndexToLetters(c)}${r + 1}`;
+
+        if (tileActive[r][c]) {
+          const pNo = nextPdfPageNo++;
+          mapOps.push('q');
+          mapOps.push('0.95 0.97 1.00 rg 0.55 0.63 0.75 RG 0.45 w [] 0 d');
+          mapOps.push(`${fmtNum(rxPt)} ${fmtNum(ryBottomPt)} ${fmtNum(rwPt)} ${fmtNum(rhPt)} re B`);
+          mapOps.push('Q');
+          if (rwPt >= 18 && rhPt >= 11) {
+            const [tx, ty] = mapToPdfPt(cellX0 + 2.5 / mScale, cellY0 + 4.2 / mScale);
+            const cellLbl = rwPt >= 38 ? `${code} (p.${pNo})` : code;
+            mapOps.push('BT');
+            mapOps.push('/F1 5.8 Tf 0.18 0.24 0.34 rg');
+            mapOps.push(`1 0 0 1 ${fmtNum(tx)} ${fmtNum(ty)} Tm`);
+            mapOps.push(`(${encodePdfWinAnsiLiteral(cellLbl)}) Tj`);
+            mapOps.push('ET');
+          }
+        } else {
+          mapOps.push('q');
+          mapOps.push('0.80 0.83 0.88 RG 0.35 w [2 2] 0 d');
+          mapOps.push(`${fmtNum(rxPt)} ${fmtNum(ryBottomPt)} ${fmtNum(rwPt)} ${fmtNum(rhPt)} re S`);
+          mapOps.push('Q');
+          if (rwPt >= 26 && rhPt >= 11) {
+            const [tx, ty] = mapToPdfPt(cellX0 + 2.5 / mScale, cellY0 + 4.2 / mScale);
+            mapOps.push('BT');
+            mapOps.push('/F1 5.2 Tf 0.62 0.66 0.72 rg');
+            mapOps.push(`1 0 0 1 ${fmtNum(tx)} ${fmtNum(ty)} Tm`);
+            mapOps.push(`(${encodePdfWinAnsiLiteral(`${code} skip`)}) Tj`);
+            mapOps.push('ET');
+          }
+        }
+      }
+    }
+
+    // Draw scaled pattern piece silhouettes across the tile grid
+    for (const p of prep.pieces) {
+      const pts = p.cutPoints && p.cutPoints.length >= 3 ? p.cutPoints : p.netPoints;
+      if (!pts || pts.length < 3) continue;
+      const stride = Math.max(1, Math.ceil(pts.length / 96));
+      mapOps.push('q');
+      mapOps.push('0.12 0.35 0.78 RG 0.80 w [] 0 d');
+      const [s0x, s0y] = mapToPdfPt(pts[0].x, pts[0].y);
+      mapOps.push(`${fmtNum(s0x)} ${fmtNum(s0y)} m`);
+      for (let i = stride; i < pts.length; i += stride) {
+        const [px, py] = mapToPdfPt(pts[i].x, pts[i].y);
+        mapOps.push(`${fmtNum(px)} ${fmtNum(py)} l`);
+      }
+      mapOps.push('h S');
+      mapOps.push('Q');
+
+      if (p.center) {
+        const [cxPt, cyPt] = mapToPdfPt(p.center.x, p.center.y);
+        mapOps.push('BT');
+        mapOps.push('/F1 6.0 Tf 0.08 0.14 0.28 rg');
+        mapOps.push(`1 0 0 1 ${fmtNum(cxPt - 14)} ${fmtNum(cyPt)} Tm`);
+        mapOps.push(`(${encodePdfWinAnsiLiteral(String(p.name || '').slice(0, 26))}) Tj`);
+        mapOps.push('ET');
+      }
+    }
+
+    // Full 1:1 calibration squares on Page 1 Overview so users can test-print Page 1 alone!
+    if (hasMapCalBox) {
+      const cal50X = pageW - marginMm - 55;
+      const cal50Y = pageH - marginMm - 54;
+      const [c50xPt, c50yBottomPt] = pageAbsToPdfPt(cal50X, cal50Y + 50.0);
+      const c50Pt = 50.0 * MM_TO_PT;
+      mapOps.push('q');
+      mapOps.push('0.05 0.05 0.05 RG 0.65 w [] 0 d');
+      mapOps.push(`${fmtNum(c50xPt)} ${fmtNum(c50yBottomPt)} ${fmtNum(c50Pt)} ${fmtNum(c50Pt)} re S`);
+      mapOps.push('Q');
+      const [t50x, t50y] = pageAbsToPdfPt(cal50X + 2, cal50Y + 26);
+      mapOps.push('BT /F1 6.2 Tf 0.05 0.05 0.05 rg');
+      mapOps.push(`1 0 0 1 ${fmtNum(t50x)} ${fmtNum(t50y)} Tm (CALIBRATION 50.0 x 50.0 mm) Tj ET`);
+
+      const cal2X = cal50X - 56;
+      const cal2Y = pageH - marginMm - 54.8;
+      const [c2xPt, c2yBottomPt] = pageAbsToPdfPt(cal2X, cal2Y + 50.8);
+      const c2Pt = 50.8 * MM_TO_PT;
+      mapOps.push('q');
+      mapOps.push('0.35 0.35 0.35 RG 0.50 w [] 0 d');
+      mapOps.push(`${fmtNum(c2xPt)} ${fmtNum(c2yBottomPt)} ${fmtNum(c2Pt)} ${fmtNum(c2Pt)} re S`);
+      mapOps.push('Q');
+      const [t2x, t2y] = pageAbsToPdfPt(cal2X + 2, cal2Y + 26);
+      mapOps.push('BT /F1 6.2 Tf 0.35 0.35 0.35 rg');
+      mapOps.push(`1 0 0 1 ${fmtNum(t2x)} ${fmtNum(t2y)} Tm (2.00 x 2.00 in / 50.8 mm) Tj ET`);
+    }
+
+    pageStreams.push(mapOps.join('\n'));
+  }
+
+  let tileCalDrawn = false;
 
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
+      if (!tileActive[row][col]) continue;
       const tileOriginX = col * stepX;
       const tileOriginY = row * stepY;
 
       const toPdfPt = (xMm, yMm) => [
         (xMm - tileOriginX + marginMm) * MM_TO_PT,
         (pageH - (yMm - tileOriginY + marginMm)) * MM_TO_PT,
-      ];
-      const pageAbsToPdfPt = (pxMm, pyMm) => [
-        pxMm * MM_TO_PT,
-        (pageH - pyMm) * MM_TO_PT,
       ];
 
       const ops = [];
@@ -1234,8 +1421,9 @@ export function exportTiledPDF(pattern, options = {}) {
       ops.push(`(${encodePdfWinAnsiLiteral(headerLabel)}) Tj`);
       ops.push('ET');
 
-      // 4. Page 1 measurable calibration squares (outside piece clip, inside printable frame)
-      if (row === 0 && col === 0) {
+      // 4. First emitted tile measurable calibration squares (outside piece clip, inside printable frame)
+      if (!tileCalDrawn) {
+        tileCalDrawn = true;
         if (printableW >= 54 && printableH >= 54) {
           const calSize = 50.0;
           const cal50X = Math.max(marginMm + 2, pageW - marginMm - 55);
@@ -1549,6 +1737,9 @@ export function exportTiledPDF(pattern, options = {}) {
     pdfBytes,
     pdfString,
     pageCount: pageIds.length,
+    tilePageCount: activeTileCount,
+    skippedTileCount,
+    hasAssemblyMap: willEmitAssemblyMap,
     rows,
     cols,
     pageFormat: pageSpec.id,

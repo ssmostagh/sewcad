@@ -144,7 +144,7 @@ export class CAD2DViewport {
     if (!scene) return;
     this._lastScene = scene;
     const padX = 52;
-    const padTop = 56;
+    const padTop = 64;
     const padBottom = 64;
     const availW = Math.max(80, this.cssWidth - padX * 2);
     const availH = Math.max(80, this.cssHeight - padTop - padBottom);
@@ -521,45 +521,59 @@ export class CAD2DViewport {
 
       // Select / Edit Points
       const selPiece = this._getSelectedPiece(scene);
-      if (selPiece && (tool === 'select' || tool === 'edit_points')) {
-        const cpHit = this._hitTestCurveHandles(selPiece, sx, sy);
-        if (cpHit) {
-          const fixedPivot = getPieceTransformPivot(selPiece);
-          const origCp = selPiece.edges?.[cpHit.edgeIndex]?.curve?.[cpHit.cpKey];
-          this.callbacks.onBeforeMutate?.('Edit Bezier handle');
-          this._drag = {
-            mode: 'cp',
-            pointerId: e?.pointerId,
-            pieceId: selPiece.id,
-            edgeIndex: cpHit.edgeIndex,
-            cpKey: cpHit.cpKey,
-            fixedPivot,
-            origCp: origCp ? { x: origCp.x, y: origCp.y } : null,
-            hadRotationOrigin: selPiece.rotationOrigin !== undefined,
-            origRotationOrigin: selPiece.rotationOrigin ? { ...selPiece.rotationOrigin } : undefined,
-          };
-          this.canvas.setPointerCapture?.(e.pointerId);
-          return;
-        }
+      const candidatePieces = tool === 'edit_points' && Array.isArray(pattern?.pieces)
+        ? [
+            ...(selPiece ? [selPiece] : []),
+            ...pattern.pieces.filter((p) => p && p.id !== selPiece?.id).reverse(),
+          ]
+        : (selPiece ? [selPiece] : []);
 
-        const vertHit = this._hitTestVertices(selPiece, sx, sy);
-        if (vertHit) {
-          const fixedPivot = getPieceTransformPivot(selPiece);
-          const origPoint = selPiece.points?.[vertHit.vertexIndex];
-          this.callbacks.onSelectPiece?.(selPiece.id, vertHit.vertexIndex, vertHit.vertexIndex);
-          this.callbacks.onBeforeMutate?.('Move vertex');
-          this._drag = {
-            mode: 'vertex',
-            pointerId: e?.pointerId,
-            pieceId: selPiece.id,
-            vertexIndex: vertHit.vertexIndex,
-            fixedPivot,
-            origPoint: origPoint ? { x: origPoint.x, y: origPoint.y } : null,
-            hadRotationOrigin: selPiece.rotationOrigin !== undefined,
-            origRotationOrigin: selPiece.rotationOrigin ? { ...selPiece.rotationOrigin } : undefined,
-          };
-          this.canvas.setPointerCapture?.(e.pointerId);
-          return;
+      if (tool === 'select' || tool === 'edit_points') {
+        for (const cand of candidatePieces) {
+          const cpHit = this._hitTestCurveHandles(cand, sx, sy);
+          if (cpHit) {
+            if (cand.id !== selPiece?.id) {
+              this.callbacks.onSelectPiece?.(cand.id, -1, cpHit.edgeIndex);
+            }
+            const fixedPivot = getPieceTransformPivot(cand);
+            const origCp = cand.edges?.[cpHit.edgeIndex]?.curve?.[cpHit.cpKey];
+            this.callbacks.onBeforeMutate?.('Edit Bezier handle');
+            this._drag = {
+              mode: 'cp',
+              pointerId: e?.pointerId,
+              pieceId: cand.id,
+              edgeIndex: cpHit.edgeIndex,
+              cpKey: cpHit.cpKey,
+              fixedPivot,
+              origCp: origCp ? { x: origCp.x, y: origCp.y } : null,
+              hadRotationOrigin: cand.rotationOrigin !== undefined,
+              origRotationOrigin: cand.rotationOrigin ? { ...cand.rotationOrigin } : undefined,
+            };
+            if (this.canvas?.style) this.canvas.style.cursor = 'grabbing';
+            this.canvas.setPointerCapture?.(e.pointerId);
+            return;
+          }
+
+          const vertHit = this._hitTestVertices(cand, sx, sy);
+          if (vertHit) {
+            const fixedPivot = getPieceTransformPivot(cand);
+            const origPoint = cand.points?.[vertHit.vertexIndex];
+            this.callbacks.onSelectPiece?.(cand.id, vertHit.vertexIndex, vertHit.vertexIndex);
+            this.callbacks.onBeforeMutate?.('Move vertex');
+            this._drag = {
+              mode: 'vertex',
+              pointerId: e?.pointerId,
+              pieceId: cand.id,
+              vertexIndex: vertHit.vertexIndex,
+              fixedPivot,
+              origPoint: origPoint ? { x: origPoint.x, y: origPoint.y } : null,
+              hadRotationOrigin: cand.rotationOrigin !== undefined,
+              origRotationOrigin: cand.rotationOrigin ? { ...cand.rotationOrigin } : undefined,
+            };
+            if (this.canvas?.style) this.canvas.style.cursor = 'grabbing';
+            this.canvas.setPointerCapture?.(e.pointerId);
+            return;
+          }
         }
       }
 
@@ -620,6 +634,26 @@ export class CAD2DViewport {
       if (!this._drag) {
         if (scene?.activeTool === 'draw_poly' && this.penPoints.length > 0) {
           this.callbacks.onRedraw?.();
+        }
+        if (this.canvas?.style && scene) {
+          const t = scene.activeTool || 'select';
+          if (scene.viewMode === 'nesting') {
+            this.canvas.style.cursor = this._hitTestNesting(scene, sx, sy) ? 'pointer' : 'grab';
+          } else if (t === 'draw_poly') {
+            this.canvas.style.cursor = 'crosshair';
+          } else if (t === 'sew' || t === 'dart' || t === 'notch' || t === 'split_edge' || t === 'mirror') {
+            this.canvas.style.cursor = this._hitTestEdges(scene.pattern, sx, sy) ? 'pointer' : 'default';
+          } else {
+            const sp = this._getSelectedPiece(scene);
+            const overHandle = sp && (this._hitTestCurveHandles(sp, sx, sy) || this._hitTestVertices(sp, sx, sy));
+            if (overHandle) {
+              this.canvas.style.cursor = 'pointer';
+            } else if (t === 'edit_points') {
+              this.canvas.style.cursor = this._hitTestEdges(scene.pattern, sx, sy) ? 'pointer' : 'default';
+            } else {
+              this.canvas.style.cursor = this._hitTestPieces(scene.pattern, sx, sy) ? 'grab' : 'default';
+            }
+          }
         }
         return;
       }
@@ -708,6 +742,7 @@ export class CAD2DViewport {
       } catch {
         // ignore
       }
+      if (this.canvas?.style) this.canvas.style.cursor = '';
       if (mode === 'piece' || mode === 'vertex' || mode === 'cp') {
         this.callbacks.onAfterMutate?.();
       }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CLO-Craft Studio v2 — 3D Draping, 2D Pattern CAD &amp; 1:1 Production</title>
+  <title>SewCAD &mdash; Women's 2D/3D Pattern CAD, Draping &amp; 1:1 Cut</title>
   <link rel="icon" href="data:," />
   <link rel="stylesheet" href="/styles.css" />
   <script type="importmap">
@@ -16,19 +16,19 @@
   </script>
 </head>
 <body>
-  <!-- Top Studio Header & Main Action Bar -->
+  <!-- Top Studio Header & Single-Row Action Bar -->
   <header class="topbar">
     <div class="brand">
-      <span class="brand-badge">CLO&bull;CAD</span>
+      <span class="brand-badge">SEW&bull;CAD</span>
       <div class="brand-titles">
-        <h1>Pattern Studio v2</h1>
-        <span class="brand-sub">3D Garment Draping &bull; 2D True-Scale CAD &bull; .STL Unwrap &bull; 1:1 Cut</span>
+        <h1>SewCAD</h1>
+        <span class="brand-sub">Women's 2D/3D Draping &amp; 1:1 Cut</span>
       </div>
     </div>
 
-    <div class="toolbar-group">
+    <div class="toolbar-group toolbar-group-grow">
       <label class="toolbar-label" for="templateSelect">Block</label>
-      <select id="templateSelect" class="toolbar-select" title="Choose Women's Garment Sloper or Starter Block">
+      <select id="templateSelect" class="toolbar-select block-select" title="Choose Women's Garment Sloper, Starter Block, or 3D .STL Cover">
         <optgroup label="Women's Garment Blocks &amp; Slopers">
           <option value="bodice_sloper" selected>1. Women's Fitted Bodice Sloper (Bust + Waist Darts)</option>
           <option value="princess_bodice">2. Women's Princess-Seam Bodice / Bustier</option>
@@ -45,15 +45,25 @@
           <option value="stl_cover">11. Custom 3D .STL Object Cover</option>
         </optgroup>
       </select>
+      <button type="button" id="btnResetBlock" class="btn-mini" title="Reset active block to fresh default proportions (Undoable with Ctrl+Z)">&#8634; Reset</button>
     </div>
 
     <div class="toolbar-group">
       <div class="segmented-control" id="viewModeGroup" role="group" aria-label="Viewport Layout">
-        <button type="button" class="seg-btn active" data-view="split">Split 2D+3D</button>
-        <button type="button" class="seg-btn" data-view="2d">2D CAD</button>
-        <button type="button" class="seg-btn" data-view="3d">3D Draping</button>
-        <button type="button" class="seg-btn" data-view="nesting">Nesting &amp; Export</button>
+        <button type="button" class="seg-btn active" data-view="split" title="Split 3D Studio + 2D Pattern Canvas">Split 2D+3D</button>
+        <button type="button" class="seg-btn" data-view="2d" title="Full-Width 2D Pattern CAD">2D CAD</button>
+        <button type="button" class="seg-btn" data-view="3d" title="Full-Width 3D Draping Studio">3D Drape</button>
+        <button type="button" class="seg-btn" data-view="nesting" title="Fabric Roll Nesting &amp; Cut Sheet Preview">Nest &amp; Cut</button>
       </div>
+    </div>
+
+    <div class="toolbar-group">
+      <label class="toolbar-label" for="unitSelect">Unit</label>
+      <select id="unitSelect" class="toolbar-select unit-select" title="Display &amp; Input Units (Internal Geometry Always 1:1 mm)">
+        <option value="in">in</option>
+        <option value="cm">cm</option>
+        <option value="mm">mm</option>
+      </select>
     </div>
 
     <div class="toolbar-group">
@@ -61,45 +71,25 @@
       <button type="button" id="btnRedo" class="btn" title="Redo (Ctrl+Y)" disabled>&#8631; Redo</button>
     </div>
 
-    <div class="toolbar-group">
-      <button type="button" id="btnSimToggle" class="btn btn-primary" title="Toggle Real-Time 3D Cloth Draping &amp; Sewing Physics (Space)">
-        &#9654; Drape 3D
-      </button>
-      <button type="button" id="btnSimStep" class="btn" title="Advance 25 Physics Solver Steps">
-        +25 Steps
-      </button>
-      <button type="button" id="btnSimReset" class="btn" title="Reset 3D Cloth Arrangement">
-        Reset 3D
-      </button>
-      <button type="button" id="btnStrainToggle" class="btn" title="Toggle Strain / Fit Tension Heatmap">
-        Strain Map
-      </button>
-    </div>
-
-    <div class="toolbar-group">
-      <label class="toolbar-label" for="unitSelect">Unit</label>
-      <select id="unitSelect" class="toolbar-select unit-select" title="Display &amp; Input Units (Internal Geometry Canonical mm)">
-        <option value="mm">mm</option>
-        <option value="cm">cm</option>
-        <option value="in">in</option>
-      </select>
-    </div>
-
     <div class="toolbar-group export-actions">
-      <button type="button" id="btnImportJSON" class="btn" title="Import Pattern Project JSON">Import JSON</button>
-      <input type="file" id="jsonFileInput" accept=".json,application/json" class="hidden" />
-      <button type="button" id="btnExportSVG" data-export="svg" class="btn btn-accent" title="Export 1:1 True-Scale SVG">
+      <button type="button" id="btnExportPDF" data-export="pdf" class="btn btn-primary" title="Download 1:1 Printable Tiled PDF (Letter / A4)">
+        Print 1:1 PDF <span id="pdfSpecBadge" class="btn-sub-badge">Letter</span>
+      </button>
+      <button type="button" id="btnExportSVG" data-export="svg" class="btn btn-accent" title="Export 1:1 True-Scale Vector SVG (Projector / Cutter)">
         1:1 SVG
       </button>
-      <button type="button" id="btnExportPDF" data-export="pdf" class="btn btn-accent" title="Export Multi-Page Tiled 1:1 Printable PDF">
-        Tiled PDF
-      </button>
-      <button type="button" id="btnExportDXF" data-export="dxf" class="btn" title="Export CAD DXF ($INSUNITS=4)">
-        DXF
-      </button>
-      <button type="button" id="btnExportJSON" data-export="json" class="btn" title="Export Canonical mm JSON">
-        JSON
-      </button>
+      <details class="topbar-menu" id="fileExportMenu">
+        <summary class="btn" title="Import/Save Project JSON, CAD DXF &amp; Print Settings">More &#9662;</summary>
+        <div class="topbar-menu-popover">
+          <button type="button" id="btnImportJSON" class="menu-item-btn" title="Open Saved Pattern Project (.json)">Open Project JSON&hellip;</button>
+          <button type="button" id="btnExportJSON" data-export="json" class="menu-item-btn" title="Save Editable Pattern Project (.json)">Save Project JSON</button>
+          <button type="button" id="btnExportDXF" data-export="dxf" class="menu-item-btn" title="Export Industrial CAD DXF ($INSUNITS=4)">Export CAD DXF</button>
+          <div class="menu-divider"></div>
+          <button type="button" id="btnMenuOpenExportTab" class="menu-item-btn menu-item-accent">Paper Size &amp; Roll Nesting&hellip;</button>
+        </div>
+      </details>
+      <input type="file" id="jsonFileInput" accept=".json,application/json" class="hidden" />
+      <button type="button" id="btnOpenGuide" class="btn btn-guide" title="Quick-Start Guide &amp; Keyboard Shortcuts (?)">? Guide</button>
     </div>
   </header>
 
@@ -107,49 +97,60 @@
   <div class="studio-body">
     <!-- Left 2D CAD & Sewing Tool Dock -->
     <aside class="tool-dock" aria-label="2D Pattern Drafting Tools">
-      <button type="button" class="tool-btn active" data-tool="select" title="Select / Move Piece, Vertices &amp; Bezier Handles (V)">
+      <button type="button" class="tool-btn active" data-tool="select" title="Move Pattern Pieces or Drag Points (V)">
         <span class="tool-icon">&#9698;</span>
-        <span class="tool-label">Select</span>
+        <span class="tool-label">Move</span>
+        <kbd class="tool-key">V</kbd>
       </button>
-      <button type="button" class="tool-btn" data-tool="edit_points" title="Edit Vertices &amp; Quadratic/Cubic Bezier Handles (A)">
+      <button type="button" class="tool-btn" data-tool="edit_points" title="Sculpt Vertices, Curves &amp; Edges Without Moving Pieces (A)">
         <span class="tool-icon">&#9670;</span>
         <span class="tool-label">Points</span>
+        <kbd class="tool-key">A</kbd>
       </button>
-      <button type="button" class="tool-btn" data-tool="draw_poly" title="Pen / Freeform Polygon Tool (P) — Click vertices, double-click or click start to close">
+      <button type="button" class="tool-btn" data-tool="draw_poly" title="Pen / Freeform Polygon Tool (P) — Click vertices, double-click or click start to close, Esc to cancel">
         <span class="tool-icon">&#9998;</span>
         <span class="tool-label">Pen Poly</span>
+        <kbd class="tool-key">P</kbd>
       </button>
-      <button type="button" class="tool-btn" data-tool="add_rect" title="Add Parametric Rectangle Piece (R)">
+      <button type="button" class="tool-btn" data-tool="add_rect" title="Add Parametric Rectangle Piece / Pocket / Waistband (R)">
         <span class="tool-icon">&#9645;</span>
         <span class="tool-label">Add Rect</span>
+        <kbd class="tool-key">R</kbd>
       </button>
-      <button type="button" class="tool-btn" data-tool="split_edge" title="Split Edge / Insert Vertex (I)">
+      <button type="button" class="tool-btn" data-tool="split_edge" title="Split Edge / Insert Point on Clicked Edge (I)">
         <span class="tool-icon">&#10010;</span>
         <span class="tool-label">Split Edge</span>
+        <kbd class="tool-key">I</kbd>
       </button>
-      <button type="button" class="tool-btn" id="btnToolDeleteVertex" title="Delete Selected Vertex (Del)">
+      <button type="button" class="tool-btn" id="btnToolDeleteVertex" title="Delete Selected Point (Del / Backspace)">
         <span class="tool-icon">&#10005;</span>
-        <span class="tool-label">Del Vert</span>
+        <span class="tool-label">Del Pt</span>
+        <kbd class="tool-key">Del</kbd>
       </button>
-      <button type="button" class="tool-btn" data-tool="sew" title="Stitch / Sew Two Edges (S) — Click Edge A then Edge B">
+      <button type="button" class="tool-btn" data-tool="sew" title="Stitch / Sew Two Edges (S) — Click Edge A then Edge B, Esc to cancel">
         <span class="tool-icon">&#9986;</span>
         <span class="tool-label">Sew Seam</span>
+        <kbd class="tool-key">S</kbd>
       </button>
       <button type="button" class="tool-btn" data-tool="dart" title="Add V-Dart on Clicked Edge (D)">
         <span class="tool-icon">&#9661;</span>
         <span class="tool-label">Add Dart</span>
+        <kbd class="tool-key">D</kbd>
       </button>
       <button type="button" class="tool-btn" data-tool="notch" title="Add Alignment Notch on Clicked Edge (N)">
         <span class="tool-icon">&#9589;</span>
         <span class="tool-label">Notch</span>
+        <kbd class="tool-key">N</kbd>
       </button>
-      <button type="button" class="tool-btn" data-tool="mirror" title="Mirror / Unfold Piece Symmetrically Across Edge (M)">
+      <button type="button" class="tool-btn" data-tool="mirror" title="Mirror / Unfold Piece Symmetrically Across Clicked Fold Edge (M)">
         <span class="tool-icon">&#8660;</span>
         <span class="tool-label">Unfold</span>
+        <kbd class="tool-key">M</kbd>
       </button>
-      <button type="button" class="tool-btn" id="btnToolZoomFit" title="Zoom Fit All Pieces (F)">
+      <button type="button" class="tool-btn" id="btnToolZoomFit" title="Zoom Fit All 2D Pattern Pieces (F)">
         <span class="tool-icon">&#8981;</span>
         <span class="tool-label">Zoom Fit</span>
+        <kbd class="tool-key">F</kbd>
       </button>
     </aside>
 
@@ -176,6 +177,22 @@
         </div>
         <div class="canvas-wrap">
           <canvas id="canvas2D"></canvas>
+
+          <!-- Contextual 2D Edge & Piece Quick-Action Bar -->
+          <div class="context-float-bar" id="contextEdgeBar" role="toolbar" aria-label="Selected Piece and Edge Quick Actions">
+            <span class="ctx-selection-pill" id="ctxSelectionLabel" title="Selected Pattern Piece and Edge">Edge 1</span>
+            <select id="ctxCurveSelect" class="mini-select" title="Shape Selected Edge (Straight or Bezier Curve)">
+              <option value="straight">Straight</option>
+              <option value="quadratic">Curve</option>
+              <option value="cubic">S-Curve</option>
+            </select>
+            <button type="button" id="btnCtxDart" class="btn-mini" title="Add V-Dart on Selected Edge (D)">+Dart</button>
+            <button type="button" id="btnCtxNotch" class="btn-mini" title="Add Alignment Notch on Selected Edge (N)">+Notch</button>
+            <button type="button" id="btnCtxSplit" class="btn-mini" title="Insert Point at Midpoint of Selected Edge (I)">Split</button>
+            <button type="button" id="btnCtxUnfold" class="btn-mini" title="Mirror / Unfold Symmetrically Across Selected Edge (M)">Unfold</button>
+            <button type="button" id="btnCtxZeroSa" class="btn-mini" title="Set Selected Edge Seam Allowance to 0 (Fold Edge)">0 SA</button>
+            <button type="button" id="btnCtxOpenPieceTab" class="btn-mini ctx-more-btn" title="Open Full Piece, Seam Allowance &amp; Seam Matching Inspector">Seams &#9656;</button>
+          </div>
 
           <!-- Parametric Add Rectangle Popover -->
           <div class="cad-popover hidden" id="rectPopover" role="dialog" aria-label="Add Parametric Rectangle">
@@ -214,7 +231,7 @@
           </div>
 
           <div class="viewport-hud hud-bottom-left" id="hud2D">
-            Tool: Select | Scroll: Zoom | Drag background: Pan
+            Tool: Move (V) | Scroll: Zoom | Drag background: Pan
           </div>
         </div>
       </section>
@@ -228,19 +245,37 @@
             <span id="webglBadge" class="engine-badge">Three.js PBR</span>
           </div>
           <div class="pane-controls">
-            <label class="chk-inline"><input type="checkbox" id="chkShowForm3D" checked /> Avatar/STL</label>
+            <label class="chk-inline"><input type="checkbox" id="chkShowForm3D" checked /> Form</label>
             <label class="chk-inline"><input type="checkbox" id="chkShowWire3D" /> Mesh</label>
-            <label class="chk-inline"><input type="checkbox" id="chkShowThreads3D" /> Seam Lines</label>
-            <button type="button" id="btnPinMode3D" class="btn-mini" title="Click/Drag 3D cloth particles to pin (or Ctrl+Click)">Pin</button>
+            <label class="chk-inline"><input type="checkbox" id="chkShowThreads3D" /> Seams</label>
+            <button type="button" id="btnPinMode3D" class="btn-mini" title="Click/Drag 3D cloth particles to pin on form (or Ctrl+Click)">Pin</button>
             <button type="button" id="btnClearPins3D" class="btn-mini" title="Release all pinned 3D particles">Unpin</button>
             <button type="button" id="btnCamFront" class="btn-mini">Front</button>
             <button type="button" id="btnCamBack" class="btn-mini">Back</button>
             <button type="button" id="btnCamSide" class="btn-mini">Side</button>
-            <button type="button" id="btnCamIso" class="btn-mini">3/4 Studio</button>
+            <button type="button" id="btnCamIso" class="btn-mini">3/4</button>
           </div>
         </div>
         <div class="canvas-wrap">
           <canvas id="canvas3D"></canvas>
+
+          <!-- Floating 3D Cloth Draping & Fit Tension Pill Bar -->
+          <div class="drape-float-bar" id="drapeControlsBar" role="toolbar" aria-label="3D Cloth Draping Controls">
+            <button type="button" id="btnSimToggle" class="btn btn-primary" title="Toggle Live 3D Cloth Draping Physics (Space)">
+              &#9654; Drape 3D
+            </button>
+            <button type="button" id="btnSimStep" class="btn-mini" title="Settle +25 Physics Steps">
+              +25 Steps
+            </button>
+            <button type="button" id="btnSimReset" class="btn-mini" title="Reset 3D Garment Arrangement">
+              Reset 3D
+            </button>
+            <span class="float-divider"></span>
+            <button type="button" id="btnStrainToggle" class="btn-mini" title="Toggle Fit Tension / Strain Heatmap on Garment">
+              Fit Strain Map
+            </button>
+          </div>
+
           <div class="viewport-hud hud-bottom-left" id="hud3D">
             3D Solver Ready | Drag: Orbit | Shift+Drag: Pan | Scroll: Zoom | Ctrl+Click: Pin
           </div>
@@ -255,142 +290,166 @@
       </section>
     </main>
 
-    <!-- Right Inspector Sidebar (CLO3D Object Browser + Property Editor) -->
+    <!-- Right Inspector Sidebar (Object Browser + Contextual Tabs) -->
     <aside class="inspector-sidebar">
       <div class="object-browser-strip">
         <div class="ob-header">
-          <span class="ob-title">Object Browser</span>
+          <span class="ob-title">Pattern Pieces</span>
           <span id="obPieceSummary" class="ob-count">5 Pieces</span>
         </div>
         <div id="objectBrowserList" class="ob-list" role="listbox" aria-label="Pattern Pieces"></div>
       </div>
 
       <nav class="inspector-tabs" role="tablist">
-        <button type="button" class="tab-btn active" data-tab="tabParametric">Block &amp; STL</button>
-        <button type="button" class="tab-btn" data-tab="tabPiece">Piece &amp; Seams</button>
-        <button type="button" class="tab-btn" data-tab="tabMaterial">Fabric PBR</button>
-        <button type="button" class="tab-btn" data-tab="tabOutput">Nest &amp; Cut</button>
+        <button type="button" class="tab-btn active" data-tab="tabParametric">1. Size &amp; Fit</button>
+        <button type="button" class="tab-btn" data-tab="tabPiece">2. Piece &amp; Seams</button>
+        <button type="button" class="tab-btn" data-tab="tabMaterial">3. Fabric</button>
+        <button type="button" class="tab-btn" data-tab="tabOutput">4. Print &amp; Cut</button>
       </nav>
 
-      <!-- TAB 1: Parametric Dimensions, Avatar & 3D .STL Unwrapper -->
+      <!-- TAB 1: Dress Form Size, Parametric Block Fit & .STL Unwrapper -->
       <div class="tab-panel active" id="tabParametric">
+        <div class="panel-section" id="avatarControlsSection">
+          <details class="section-details" id="avatarDetails" open>
+            <summary class="section-summary">
+              <span class="section-heading">Women's 3D Dress Form</span>
+              <span class="summary-badge" id="avatarActiveBadge">Size M</span>
+            </summary>
+            <div class="details-body">
+              <div class="form-row">
+                <label for="avSizePresetSelect">Body Size Preset (or Custom Below)</label>
+                <select id="avSizePresetSelect" class="form-input">
+                  <option value="XS">XS (US 2) &mdash; Bust 830 / Waist 650 / Hip 900</option>
+                  <option value="S">S (US 4&ndash;6) &mdash; Bust 875 / Waist 685 / Hip 945</option>
+                  <option value="M" selected>M (US 8&ndash;10) &mdash; Bust 925 / Waist 730 / Hip 1000</option>
+                  <option value="L">L (US 12&ndash;14) &mdash; Bust 990 / Waist 795 / Hip 1065</option>
+                  <option value="XL">XL (US 16&ndash;18) &mdash; Bust 1070 / Waist 880 / Hip 1145</option>
+                  <option value="1X">1X (US 20W) &mdash; Bust 1150 / Waist 970 / Hip 1230</option>
+                  <option value="2X">2X (US 22&ndash;24W) &mdash; Bust 1230 / Waist 1060 / Hip 1315</option>
+                  <option value="custom">Custom Personal Measurements</option>
+                </select>
+              </div>
+              <div class="inline-row-between sync-bar">
+                <label class="chk-inline chk-strong" title="Automatically scale garment block Bust, Waist, Hip &amp; Shoulder when changing Dress Form size">
+                  <input type="checkbox" id="chkAutoSyncBlockToForm" checked /> Auto-fit garment to form
+                </label>
+                <button type="button" id="btnSyncBlockToAvatar" class="btn-mini" title="Copy Dress Form Bust, Waist, Hip &amp; Shoulder into active pattern block now">Match Block to Form</button>
+              </div>
+              <div class="grid-2col">
+                <div class="form-row">
+                  <label for="avChestInput" data-unit-label="Full Bust">Full Bust (mm)</label>
+                  <input type="number" id="avChestInput" value="925" step="5" class="form-input" />
+                </div>
+                <div class="form-row">
+                  <label for="avUnderbustInput" data-unit-label="Underbust">Underbust (mm)</label>
+                  <input type="number" id="avUnderbustInput" value="775" step="5" class="form-input" />
+                </div>
+                <div class="form-row">
+                  <label for="avWaistInput" data-unit-label="Waist">Waist (mm)</label>
+                  <input type="number" id="avWaistInput" value="730" step="5" class="form-input" />
+                </div>
+                <div class="form-row">
+                  <label for="avHipInput" data-unit-label="Full Hip">Full Hip (mm)</label>
+                  <input type="number" id="avHipInput" value="1000" step="5" class="form-input" />
+                </div>
+                <div class="form-row">
+                  <label for="avShoulderInput" data-unit-label="Shoulder">Shoulder (mm)</label>
+                  <input type="number" id="avShoulderInput" value="386" step="5" class="form-input" />
+                </div>
+                <div class="form-row">
+                  <label for="avBustSpanInput" data-unit-label="Bust Span">Bust Span (mm)</label>
+                  <input type="number" id="avBustSpanInput" value="186" step="2" class="form-input" />
+                </div>
+              </div>
+              <details class="sub-details">
+                <summary class="sub-summary">More Contours (High Hip, HPS to Bust, Height)</summary>
+                <div class="sub-details-body">
+                  <div class="grid-2col">
+                    <div class="form-row">
+                      <label for="avHighHipInput" data-unit-label="High Hip">High Hip (mm)</label>
+                      <input type="number" id="avHighHipInput" value="915" step="5" class="form-input" />
+                    </div>
+                    <div class="form-row">
+                      <label for="avShoulderToBustInput" data-unit-label="HPS to Bust">HPS to Bust (mm)</label>
+                      <input type="number" id="avShoulderToBustInput" value="260" step="5" class="form-input" />
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <label for="avHeightInput" data-unit-label="Height">Dress Form Height (mm)</label>
+                    <input type="number" id="avHeightInput" value="1680" step="10" class="form-input" />
+                  </div>
+                </div>
+              </details>
+            </div>
+          </details>
+        </div>
+
         <div class="panel-section" id="parametricControlsSection">
-          <h3 class="section-heading">Parametric Block Measurements</h3>
-          <p class="section-hint">Adjust parameters to redraft 2D pattern pieces &amp; 3D cloth mesh live.</p>
+          <h3 class="section-heading">Garment Style &amp; Fit Sliders</h3>
+          <p class="section-hint">Drag sliders to redraft &amp; re-drape live, or <strong>click any value badge</strong> to type an exact measurement.</p>
           <div id="parametricSlidersContainer" class="sliders-stack"></div>
         </div>
 
-        <div class="panel-section" id="avatarControlsSection">
-          <div class="inline-row-between">
-            <h3 class="section-heading">Women's 3D Dress Form</h3>
-            <button type="button" id="btnSyncBlockToAvatar" class="btn-mini" title="Copy Dress Form Bust, Waist, Hip &amp; Shoulder measurements into active pattern block">Match Block to Form</button>
-          </div>
-          <div class="form-row">
-            <label for="avSizePresetSelect">Standard Women's Size Preset</label>
-            <select id="avSizePresetSelect" class="form-input">
-              <option value="XS">XS (US 2) &mdash; Bust 830 / Waist 650 / Hip 900</option>
-              <option value="S">S (US 4&ndash;6) &mdash; Bust 875 / Waist 685 / Hip 945</option>
-              <option value="M" selected>M (US 8&ndash;10) &mdash; Bust 925 / Waist 730 / Hip 1000</option>
-              <option value="L">L (US 12&ndash;14) &mdash; Bust 990 / Waist 795 / Hip 1065</option>
-              <option value="XL">XL (US 16&ndash;18) &mdash; Bust 1070 / Waist 880 / Hip 1145</option>
-              <option value="1X">1X (US 20W) &mdash; Bust 1150 / Waist 970 / Hip 1230</option>
-              <option value="2X">2X (US 22&ndash;24W) &mdash; Bust 1230 / Waist 1060 / Hip 1315</option>
-              <option value="custom">Custom Personal Measurements</option>
-            </select>
-          </div>
-          <div class="grid-2col">
-            <div class="form-row">
-              <label for="avChestInput" data-unit-label="Full Bust">Full Bust (mm)</label>
-              <input type="number" id="avChestInput" value="925" step="5" class="form-input" />
-            </div>
-            <div class="form-row">
-              <label for="avUnderbustInput" data-unit-label="Underbust">Underbust (mm)</label>
-              <input type="number" id="avUnderbustInput" value="775" step="5" class="form-input" />
-            </div>
-            <div class="form-row">
-              <label for="avWaistInput" data-unit-label="Waist">Waist (mm)</label>
-              <input type="number" id="avWaistInput" value="730" step="5" class="form-input" />
-            </div>
-            <div class="form-row">
-              <label for="avHighHipInput" data-unit-label="High Hip">High Hip (mm)</label>
-              <input type="number" id="avHighHipInput" value="915" step="5" class="form-input" />
-            </div>
-            <div class="form-row">
-              <label for="avHipInput" data-unit-label="Full Hip">Full Hip (mm)</label>
-              <input type="number" id="avHipInput" value="1000" step="5" class="form-input" />
-            </div>
-            <div class="form-row">
-              <label for="avShoulderInput" data-unit-label="Shoulder">Shoulder (mm)</label>
-              <input type="number" id="avShoulderInput" value="386" step="5" class="form-input" />
-            </div>
-            <div class="form-row">
-              <label for="avBustSpanInput" data-unit-label="Bust Span">Bust Span (mm)</label>
-              <input type="number" id="avBustSpanInput" value="186" step="2" class="form-input" />
-            </div>
-            <div class="form-row">
-              <label for="avShoulderToBustInput" data-unit-label="HPS to Bust">HPS to Bust (mm)</label>
-              <input type="number" id="avShoulderToBustInput" value="260" step="5" class="form-input" />
-            </div>
-          </div>
-          <div class="form-row">
-            <label for="avHeightInput" data-unit-label="Height">Dress Form Height (mm)</label>
-            <input type="number" id="avHeightInput" value="1680" step="10" class="form-input" />
-          </div>
-        </div>
-
         <div class="panel-section" id="stlUnwrapSection">
-          <h3 class="section-heading">3D .STL Object Cover Unwrapper</h3>
-          <p class="section-hint">
-            Import or select any 3D <code>.stl</code> part to unwrap sewable cover panels in fabric, leather, or EVA foam.
-          </p>
+          <details class="section-details" id="stlUnwrapDetails">
+            <summary class="section-summary">
+              <span class="section-heading">3D .STL Object Cover Unwrapper</span>
+              <span class="summary-badge">3D Covers</span>
+            </summary>
+            <div class="details-body">
+              <p class="section-hint">
+                Import or select any 3D <code>.stl</code> part to unwrap sewable cover panels in fabric, leather, or EVA foam.
+              </p>
 
-          <div class="form-row">
-            <label for="workspaceStlSelect">Workspace .STL Files</label>
-            <div class="inline-row">
-              <select id="workspaceStlSelect" class="form-input"></select>
-              <button type="button" id="btnLoadWorkspaceStl" class="btn btn-primary">Unwrap STL</button>
-            </div>
-          </div>
+              <div class="form-row">
+                <label for="workspaceStlSelect">Workspace .STL Files</label>
+                <div class="inline-row">
+                  <select id="workspaceStlSelect" class="form-input"></select>
+                  <button type="button" id="btnLoadWorkspaceStl" class="btn btn-primary">Unwrap STL</button>
+                </div>
+              </div>
 
-          <div class="drop-zone" id="stlDropZone">
-            <label for="stlFileInput" class="drop-zone-label">Upload or Drop Local .STL (Binary / ASCII)</label>
-            <input type="file" id="stlFileInput" accept=".stl" class="form-input file-input" />
-          </div>
+              <div class="drop-zone" id="stlDropZone">
+                <label for="stlFileInput" class="drop-zone-label">Upload or Drop Local .STL (Binary / ASCII)</label>
+                <input type="file" id="stlFileInput" accept=".stl" class="form-input file-input" />
+              </div>
 
-          <div class="form-row">
-            <label for="stlUnwrapModeSelect">Unwrapping Strategy</label>
-            <select id="stlUnwrapModeSelect" class="form-input">
-              <option value="form_shell_cover">Form-Shell Cover (Profiles + Concave Gussets)</option>
-              <option value="surface_panels">Multi-Panel Developable Surface Charts</option>
-            </select>
-          </div>
+              <div class="form-row">
+                <label for="stlUnwrapModeSelect">Unwrapping Strategy</label>
+                <select id="stlUnwrapModeSelect" class="form-input">
+                  <option value="form_shell_cover">Form-Shell Cover (Profiles + Concave Gussets)</option>
+                  <option value="surface_panels">Multi-Panel Developable Surface Charts</option>
+                </select>
+              </div>
 
-          <div class="grid-2col">
-            <div class="form-row">
-              <label for="stlEaseInput" data-unit-label="Ease">Ease (mm)</label>
-              <input type="number" id="stlEaseInput" value="2.0" step="0.5" min="0" max="50" class="form-input" />
-            </div>
-            <div class="form-row">
-              <label for="stlThicknessInput" data-unit-label="Shell Offset">Shell Offset (mm)</label>
-              <input type="number" id="stlThicknessInput" value="0.0" step="0.5" min="0" max="50" class="form-input" />
-            </div>
-            <div class="form-row">
-              <label for="stlSaInput" data-unit-label="Seam Allow">Seam Allow (mm)</label>
-              <input type="number" id="stlSaInput" value="10" step="1" min="0" max="60" class="form-input" />
-            </div>
-            <div class="form-row">
-              <label for="stlScaleInput">Model Scale</label>
-              <input type="number" id="stlScaleInput" value="1.0" step="0.05" min="0.1" max="5" class="form-input" />
-            </div>
-          </div>
+              <div class="grid-2col">
+                <div class="form-row">
+                  <label for="stlEaseInput" data-unit-label="Ease">Ease (mm)</label>
+                  <input type="number" id="stlEaseInput" value="2.0" step="0.5" min="0" max="50" class="form-input" />
+                </div>
+                <div class="form-row">
+                  <label for="stlThicknessInput" data-unit-label="Shell Offset">Shell Offset (mm)</label>
+                  <input type="number" id="stlThicknessInput" value="0.0" step="0.5" min="0" max="50" class="form-input" />
+                </div>
+                <div class="form-row">
+                  <label for="stlSaInput" data-unit-label="Seam Allow">Seam Allow (mm)</label>
+                  <input type="number" id="stlSaInput" value="10" step="1" min="0" max="60" class="form-input" />
+                </div>
+                <div class="form-row">
+                  <label for="stlScaleInput">Model Scale</label>
+                  <input type="number" id="stlScaleInput" value="1.0" step="0.05" min="0.1" max="5" class="form-input" />
+                </div>
+              </div>
 
-          <div class="metrics-card" id="stlMetadataCard">
-            <div class="metric-line"><span>Active 3D Model:</span> <strong id="metaStlName">None loaded</strong></div>
-            <div class="metric-line"><span>Triangles / Vertices:</span> <strong id="metaStlTris">-</strong></div>
-            <div class="metric-line"><span>Bounding Box:</span> <strong id="metaStlBounds">-</strong></div>
-            <div class="metric-line"><span>Surface Area:</span> <strong id="metaStlArea">-</strong></div>
-            <div class="metric-line"><span>Mean Distortion:</span> <strong id="metaStlDistortion">-</strong></div>
-          </div>
+              <div class="metrics-card" id="stlMetadataCard">
+                <div class="metric-line"><span>Active 3D Model:</span> <strong id="metaStlName">None loaded</strong></div>
+                <div class="metric-line"><span>Triangles / Vertices:</span> <strong id="metaStlTris">-</strong></div>
+                <div class="metric-line"><span>Bounding Box:</span> <strong id="metaStlBounds">-</strong></div>
+                <div class="metric-line"><span>Surface Area:</span> <strong id="metaStlArea">-</strong></div>
+                <div class="metric-line"><span>Mean Distortion:</span> <strong id="metaStlDistortion">-</strong></div>
+              </div>
+            </div>
+          </details>
         </div>
       </div>
 
@@ -457,6 +516,14 @@
                 <option value="cubic">Cubic Bezier</option>
               </select>
             </div>
+          </div>
+          <div class="sa-presets-row" role="group" aria-label="Quick Edge Allowance Presets">
+            <span class="preset-label">Quick SA:</span>
+            <button type="button" class="btn-mini" data-sa-mm="0" title="0 Seam Allowance (Cut on Fold Edge)">0 Fold</button>
+            <button type="button" class="btn-mini" data-sa-mm="9.525" title="3/8 in (9.5 mm) Narrow / Lingerie Seam">3/8&Prime;</button>
+            <button type="button" class="btn-mini" data-sa-mm="12.7" title="1/2 in (12.7 mm) Standard Seam">1/2&Prime;</button>
+            <button type="button" class="btn-mini" data-sa-mm="15.875" title="5/8 in (15.9 mm) Commercial Pattern Seam">5/8&Prime;</button>
+            <button type="button" class="btn-mini" data-sa-mm="31.75" title="1.25 in (31.8 mm) Skirt / Dress / Trouser Hem">1.25&Prime; Hem</button>
           </div>
           <div class="inline-row">
             <button type="button" id="btnSplitSelectedEdge" class="btn">Split Edge</button>
@@ -631,6 +698,14 @@
               <option value="nested">Auto-Nested Roll Layout</option>
             </select>
           </div>
+          <div class="inline-row">
+            <label class="chk-inline" title="Prepend Page 1 showing miniature tile map, piece layout &amp; 1:1 test square">
+              <input type="checkbox" id="chkPdfAssemblyMap" checked /> Page-1 Assembly Map
+            </label>
+            <label class="chk-inline" title="Omit empty corner tiles that contain zero pattern lines">
+              <input type="checkbox" id="chkPdfSkipBlank" checked /> Skip Blank Tiles
+            </label>
+          </div>
           <div class="stack-buttons">
             <button type="button" id="btnDownloadTiledPDFFull" class="btn btn-primary full-width">
               Download 1:1 Tiled Printable PDF
@@ -644,6 +719,63 @@
         </div>
       </div>
     </aside>
+  </div>
+
+  <!-- Quick-Start Dressmaking & Shortcut Guide Modal -->
+  <div class="guide-modal-backdrop hidden" id="quickGuideModal" role="dialog" aria-modal="true" aria-labelledby="guideModalTitle">
+    <div class="guide-modal-card">
+      <div class="guide-modal-header">
+        <div>
+          <h2 id="guideModalTitle">Quick-Start Studio Guide</h2>
+          <span class="guide-modal-sub">From body measurements to 1:1 printable sewing patterns in 4 steps</span>
+        </div>
+        <button type="button" id="btnCloseGuide" class="btn-mini" title="Close Guide (Esc)">&#10005; Close</button>
+      </div>
+      <div class="guide-steps-grid">
+        <div class="guide-step">
+          <span class="guide-step-num">1</span>
+          <div>
+            <strong>Pick Block &amp; Your Size</strong>
+            <p>Choose a women's sloper, dress, skirt, trouser, or <code>.STL</code> cover at top. In <strong>1. Size &amp; Fit</strong>, select your US size preset (<code>XS&ndash;2X</code>) or enter custom measurements in <code>in</code> / <code>cm</code>.</p>
+          </div>
+        </div>
+        <div class="guide-step">
+          <span class="guide-step-num">2</span>
+          <div>
+            <strong>Dial Fit &amp; Sculpt 2D Curves</strong>
+            <p>Drag sliders (or <strong>click any amber number badge</strong> to type an exact measurement). Click any 2D pattern edge to curve necklines, add darts/notches, or unfold on fold right from the top canvas bar.</p>
+          </div>
+        </div>
+        <div class="guide-step">
+          <span class="guide-step-num">3</span>
+          <div>
+            <strong>Drape &amp; Check Fit in 3D</strong>
+            <p>Garments re-drape automatically when you release sliders. Press <code>Space</code> (<strong>Drape 3D</strong>) for live physics, <code>Ctrl+Click</code> cloth to pin to the form, or toggle <strong>Fit Strain Map</strong>.</p>
+          </div>
+        </div>
+        <div class="guide-step">
+          <span class="guide-step-num">4</span>
+          <div>
+            <strong>Print 1:1 at Home</strong>
+            <p>Click <strong>Print 1:1 PDF</strong> (Letter or A4 pages with corner alignment diamonds &amp; a <code>2.00 &times; 2.00 in / 50 &times; 50 mm</code> test square — print at <strong>100% Actual Size</strong>).</p>
+          </div>
+        </div>
+      </div>
+      <div class="guide-shortcuts-box">
+        <span class="guide-shortcuts-title">Shortcuts</span>
+        <span><kbd>V</kbd> Move Piece</span>
+        <span><kbd>A</kbd> Sculpt Points</span>
+        <span><kbd>P</kbd> Pen Poly</span>
+        <span><kbd>S</kbd> Sew Seam</span>
+        <span><kbd>D</kbd> Add Dart</span>
+        <span><kbd>N</kbd> Notch</span>
+        <span><kbd>M</kbd> Unfold</span>
+        <span><kbd>F</kbd> Zoom Fit</span>
+        <span><kbd>Space</kbd> Drape 3D</span>
+        <span><kbd>Esc</kbd> Cancel</span>
+        <span><kbd>Ctrl+Z/Y</kbd> Undo/Redo</span>
+      </div>
+    </div>
   </div>
 
   <div class="studio-toast hidden" id="studioToast" role="status" aria-live="polite"></div>

@@ -178,9 +178,18 @@ function solveWomensArmscyeAndCap({ halfBust, shoulderSpan, shoulderDrop, bodice
 export function generateWomensBodiceSloper(userParams = {}) {
   userParams = userParams && typeof userParams === 'object' ? userParams : {};
   const bustMm = clamp(finiteNum(userParams.chestMm ?? userParams.bustMm, 925), 680, 1800);
+  const stdUnderbust = Math.round(bustMm * 0.838);
+  const underbustMm = clamp(
+    finiteNum(userParams.underbustMm, stdUnderbust),
+    Math.max(440, Math.round(bustMm * 0.60)),
+    Math.round(bustMm * 0.98)
+  );
+  const cupDeltaMm = (bustMm - underbustMm) - (bustMm - stdUnderbust);
+  const frameBustMm = clamp(Math.round(underbustMm / 0.838), Math.round(bustMm * 0.78), Math.round(bustMm * 1.06));
+
   const waistMm = clamp(finiteNum(userParams.waistMm, Math.round(bustMm * 0.79)), 520, Math.max(560, bustMm + 80));
   const lengthMm = clamp(finiteNum(userParams.lengthMm ?? userParams.bodiceLengthMm, 425), 320, 750);
-  const defaultShoulder = clamp(Math.round(bustMm * 0.417), 320, 520);
+  const defaultShoulder = clamp(Math.round(frameBustMm * 0.417), 320, 520);
   const easeMm = clamp(finiteNum(userParams.easeMm, 50), 10, 320);
   const halfBust = (bustMm + easeMm) * 0.5;
   const halfWaist = (waistMm + easeMm * 0.65) * 0.5;
@@ -189,13 +198,18 @@ export function generateWomensBodiceSloper(userParams = {}) {
     280,
     Math.max(300, halfBust - 18)
   );
-  const bustSpanMm = clamp(finiteNum(userParams.bustSpanMm, Math.round(bustMm * 0.20)), 130, Math.max(150, halfBust * 0.68));
+  const fbaFrontShift = clamp(cupDeltaMm * 0.30, -24, 48);
+  const frontBustW = Math.max(shoulderWidthMm + 18, halfBust + fbaFrontShift);
+  const backBustW = Math.max(shoulderWidthMm + 18, 2 * halfBust - frontBustW);
+
+  const bustSpanMm = clamp(finiteNum(userParams.bustSpanMm, Math.round(frameBustMm * 0.20)), 130, Math.max(150, frontBustW * 0.68));
   const sleeveLengthMm = clamp(finiteNum(userParams.sleeveLengthMm, 205), 110, 680);
-  const bicepWidthMm = clamp(finiteNum(userParams.bicepWidthMm, Math.round(bustMm * 0.33)), 210, 560);
+  const bicepWidthMm = clamp(finiteNum(userParams.bicepWidthMm, Math.round(frameBustMm * 0.33)), 210, 560);
   const seamAllowance = clamp(finiteNum(userParams.seamAllowance, 12), 0, 60);
 
   const p = {
     chestMm: bustMm,
+    underbustMm,
     waistMm,
     lengthMm,
     shoulderWidthMm,
@@ -209,7 +223,7 @@ export function generateWomensBodiceSloper(userParams = {}) {
   const sa = seamAllowance;
   const shoulderDrop = clamp(Math.round(shoulderWidthMm * 0.062), 18, 28);
   const neckW = clamp(Math.round(shoulderWidthMm * 0.43), 135, Math.max(145, shoulderWidthMm - 70));
-  const { armholeDepth, capH, cp2x } = solveWomensArmscyeAndCap({
+  const { armholeDepth, capH } = solveWomensArmscyeAndCap({
     halfBust,
     shoulderSpan: shoulderWidthMm,
     shoulderDrop,
@@ -218,19 +232,32 @@ export function generateWomensBodiceSloper(userParams = {}) {
     sleeveLengthMm,
   });
 
+  const cxFront = frontBustW * 0.5;
+  const cxBack = backBustW * 0.5;
+  const cp2xFront = Math.max(cxFront + 8, frontBustW - Math.min(26, frontBustW * 0.11));
+  const cp2xBack = Math.max(cxBack + 8, backBustW - Math.min(26, backBustW * 0.11));
+
   const backSideDrop = Math.max(135, lengthMm - armholeDepth);
-  const totalReduction = Math.max(16, halfBust - halfWaist);
-  const sideTaper = clamp(totalReduction * 0.34, 6, Math.min(52, halfBust * 0.16));
-  const waistSpanRaw = halfBust - 2 * sideTaper;
-  const waistDartIntakeEach = clamp((waistSpanRaw - halfWaist) * 0.5, 8, Math.min(44, waistSpanRaw * 0.18));
+  const backTotalReduction = Math.max(16, backBustW - halfWaist);
+  const backSideTaper = clamp(backTotalReduction * 0.34, 6, Math.min(52, backBustW * 0.16));
+  const backWaistSpanRaw = backBustW - 2 * backSideTaper;
+  const backWaistDartEach = clamp((backWaistSpanRaw - halfWaist) * 0.5, 6, Math.min(46, backWaistSpanRaw * 0.20));
 
-  const backSideLen = Math.hypot(sideTaper, backSideDrop);
-  const bustDartMm = clamp(Math.round((bustMm - waistMm) * 0.135), 16, Math.min(44, backSideDrop * 0.26));
+  const frontTotalReduction = Math.max(16, frontBustW - halfWaist);
+  const frontSideTaper = clamp(frontTotalReduction * 0.34, 6, Math.min(58, frontBustW * 0.17));
+  const frontWaistSpanRaw = frontBustW - 2 * frontSideTaper;
+  const frontWaistDartEach = clamp((frontWaistSpanRaw - halfWaist) * 0.5, 6, Math.min(52, frontWaistSpanRaw * 0.22));
+
+  const backSideLen = Math.hypot(backSideTaper, backSideDrop);
+  const bustDartMm = clamp(
+    Math.round((bustMm - waistMm) * 0.135 + cupDeltaMm * 0.19),
+    12,
+    Math.min(56, backSideDrop * 0.32)
+  );
   const targetFrontSideRawLen = backSideLen + bustDartMm;
-  const frontSideDrop = Math.sqrt(Math.max((backSideDrop + 8) ** 2, targetFrontSideRawLen ** 2 - sideTaper ** 2));
+  const frontSideDrop = Math.sqrt(Math.max((backSideDrop + 8) ** 2, targetFrontSideRawLen ** 2 - frontSideTaper ** 2));
 
-  const cx = halfBust * 0.5;
-  const bustDartDepth = clamp(halfBust * 0.5 - bustSpanMm * 0.5 - 20, 48, Math.max(55, halfBust * 0.28));
+  const bustDartDepth = clamp(frontBustW * 0.5 - bustSpanMm * 0.5 - 20, 46, Math.max(55, frontBustW * 0.30));
   const frontWaistDartDepth = clamp(frontSideDrop * 0.64, 72, 145);
   const backWaistDartDepth = clamp(backSideDrop * 0.72, 82, 155);
 
@@ -247,22 +274,22 @@ export function generateWomensBodiceSloper(userParams = {}) {
     rotation: 0,
     seamAllowance: sa,
     points: [
-      { x: cx - neckW * 0.5, y: 0 },
-      { x: cx + neckW * 0.5, y: 0 },
-      { x: cx + shoulderWidthMm * 0.5, y: shoulderDrop },
-      { x: halfBust, y: armholeDepth },
-      { x: halfBust - sideTaper, y: armholeDepth + frontSideDrop },
-      { x: sideTaper, y: armholeDepth + frontSideDrop },
+      { x: cxFront - neckW * 0.5, y: 0 },
+      { x: cxFront + neckW * 0.5, y: 0 },
+      { x: cxFront + shoulderWidthMm * 0.5, y: shoulderDrop },
+      { x: frontBustW, y: armholeDepth },
+      { x: frontBustW - frontSideTaper, y: armholeDepth + frontSideDrop },
+      { x: frontSideTaper, y: armholeDepth + frontSideDrop },
       { x: 0, y: armholeDepth },
-      { x: cx - shoulderWidthMm * 0.5, y: shoulderDrop },
+      { x: cxFront - shoulderWidthMm * 0.5, y: shoulderDrop },
     ],
     edges: [
       {
         name: 'Scoop Neckline',
         seamAllowance: sa,
         curve: {
-          cp1: { x: cx - neckW * 0.28, y: frontNeckDrop },
-          cp2: { x: cx + neckW * 0.28, y: frontNeckDrop },
+          cp1: { x: cxFront - neckW * 0.28, y: frontNeckDrop },
+          cp2: { x: cxFront + neckW * 0.28, y: frontNeckDrop },
         },
       },
       { name: 'Right Shoulder', seamAllowance: sa },
@@ -270,8 +297,8 @@ export function generateWomensBodiceSloper(userParams = {}) {
         name: 'Right Armscye',
         seamAllowance: sa,
         curve: {
-          cp1: { x: cx + shoulderWidthMm * 0.44, y: armholeDepth * 0.56 },
-          cp2: { x: cp2x, y: armholeDepth * 0.92 },
+          cp1: { x: cxFront + shoulderWidthMm * 0.44, y: armholeDepth * 0.56 },
+          cp2: { x: cp2xFront, y: armholeDepth * 0.92 },
         },
       },
       { name: 'Right Side Seam (Bust Dart)', seamAllowance: sa },
@@ -281,8 +308,8 @@ export function generateWomensBodiceSloper(userParams = {}) {
         name: 'Left Armscye',
         seamAllowance: sa,
         curve: {
-          cp1: { x: halfBust - cp2x, y: armholeDepth * 0.92 },
-          cp2: { x: cx - shoulderWidthMm * 0.44, y: armholeDepth * 0.56 },
+          cp1: { x: frontBustW - cp2xFront, y: armholeDepth * 0.92 },
+          cp2: { x: cxFront - shoulderWidthMm * 0.44, y: armholeDepth * 0.56 },
         },
       },
       { name: 'Left Shoulder', seamAllowance: sa },
@@ -314,7 +341,7 @@ export function generateWomensBodiceSloper(userParams = {}) {
         id: 'dart_waist_front_right',
         edgeIndex: 4,
         t: 0.26,
-        widthMm: Number(waistDartIntakeEach.toFixed(2)),
+        widthMm: Number(frontWaistDartEach.toFixed(2)),
         depthMm: frontWaistDartDepth,
         folded: false,
       },
@@ -322,7 +349,7 @@ export function generateWomensBodiceSloper(userParams = {}) {
         id: 'dart_waist_front_left',
         edgeIndex: 4,
         t: 0.74,
-        widthMm: Number(waistDartIntakeEach.toFixed(2)),
+        widthMm: Number(frontWaistDartEach.toFixed(2)),
         depthMm: frontWaistDartDepth,
         folded: false,
       },
@@ -333,8 +360,8 @@ export function generateWomensBodiceSloper(userParams = {}) {
         name: 'Bust Apex Balance Line',
         type: 'stitch',
         points: [
-          { x: cx - bustSpanMm * 0.5, y: armholeDepth + 32 },
-          { x: cx + bustSpanMm * 0.5, y: armholeDepth + 32 },
+          { x: cxFront - bustSpanMm * 0.5, y: armholeDepth + 32 },
+          { x: cxFront + bustSpanMm * 0.5, y: armholeDepth + 32 },
         ],
       },
     ],
@@ -352,26 +379,26 @@ export function generateWomensBodiceSloper(userParams = {}) {
     role: 'back_bodice',
     quantity: 1,
     onFold: false,
-    position: { x: halfBust + 155, y: 40 },
+    position: { x: frontBustW + 155, y: 40 },
     rotation: 0,
     seamAllowance: sa,
     points: [
-      { x: cx - neckW * 0.5, y: 0 },
-      { x: cx + neckW * 0.5, y: 0 },
-      { x: cx + shoulderWidthMm * 0.5, y: shoulderDrop },
-      { x: halfBust, y: armholeDepth },
-      { x: halfBust - sideTaper, y: armholeDepth + backSideDrop },
-      { x: sideTaper, y: armholeDepth + backSideDrop },
+      { x: cxBack - neckW * 0.5, y: 0 },
+      { x: cxBack + neckW * 0.5, y: 0 },
+      { x: cxBack + shoulderWidthMm * 0.5, y: shoulderDrop },
+      { x: backBustW, y: armholeDepth },
+      { x: backBustW - backSideTaper, y: armholeDepth + backSideDrop },
+      { x: backSideTaper, y: armholeDepth + backSideDrop },
       { x: 0, y: armholeDepth },
-      { x: cx - shoulderWidthMm * 0.5, y: shoulderDrop },
+      { x: cxBack - shoulderWidthMm * 0.5, y: shoulderDrop },
     ],
     edges: [
       {
         name: 'Back Neckline',
         seamAllowance: sa,
         curve: {
-          cp1: { x: cx - neckW * 0.25, y: backNeckDrop },
-          cp2: { x: cx + neckW * 0.25, y: backNeckDrop },
+          cp1: { x: cxBack - neckW * 0.25, y: backNeckDrop },
+          cp2: { x: cxBack + neckW * 0.25, y: backNeckDrop },
         },
       },
       { name: 'Left Shoulder', seamAllowance: sa },
@@ -379,8 +406,8 @@ export function generateWomensBodiceSloper(userParams = {}) {
         name: 'Left Armscye',
         seamAllowance: sa,
         curve: {
-          cp1: { x: cx + shoulderWidthMm * 0.44, y: armholeDepth * 0.56 },
-          cp2: { x: cp2x, y: armholeDepth * 0.92 },
+          cp1: { x: cxBack + shoulderWidthMm * 0.44, y: armholeDepth * 0.56 },
+          cp2: { x: cp2xBack, y: armholeDepth * 0.92 },
         },
       },
       { name: 'Left Side Seam', seamAllowance: sa },
@@ -390,8 +417,8 @@ export function generateWomensBodiceSloper(userParams = {}) {
         name: 'Right Armscye',
         seamAllowance: sa,
         curve: {
-          cp1: { x: halfBust - cp2x, y: armholeDepth * 0.92 },
-          cp2: { x: cx - shoulderWidthMm * 0.44, y: armholeDepth * 0.56 },
+          cp1: { x: backBustW - cp2xBack, y: armholeDepth * 0.92 },
+          cp2: { x: cxBack - shoulderWidthMm * 0.44, y: armholeDepth * 0.56 },
         },
       },
       { name: 'Right Shoulder', seamAllowance: sa },
@@ -406,7 +433,7 @@ export function generateWomensBodiceSloper(userParams = {}) {
         id: 'dart_waist_back_left',
         edgeIndex: 4,
         t: 0.28,
-        widthMm: Number(waistDartIntakeEach.toFixed(2)),
+        widthMm: Number(backWaistDartEach.toFixed(2)),
         depthMm: backWaistDartDepth,
         folded: false,
       },
@@ -414,7 +441,7 @@ export function generateWomensBodiceSloper(userParams = {}) {
         id: 'dart_waist_back_right',
         edgeIndex: 4,
         t: 0.72,
-        widthMm: Number(waistDartIntakeEach.toFixed(2)),
+        widthMm: Number(backWaistDartEach.toFixed(2)),
         depthMm: backWaistDartDepth,
         folded: false,
       },
@@ -425,8 +452,8 @@ export function generateWomensBodiceSloper(userParams = {}) {
         name: 'Center Back Plumb Line',
         type: 'stitch',
         points: [
-          { x: cx, y: backNeckDrop + 12 },
-          { x: cx, y: armholeDepth + backSideDrop - 12 },
+          { x: cxBack, y: backNeckDrop + 12 },
+          { x: cxBack, y: armholeDepth + backSideDrop - 12 },
         ],
       },
     ],
@@ -537,16 +564,26 @@ export function generateWomensBodiceSloper(userParams = {}) {
 export function generatePrincessBodicePattern(userParams = {}) {
   userParams = userParams && typeof userParams === 'object' ? userParams : {};
   const bustMm = clamp(finiteNum(userParams.chestMm ?? userParams.bustMm, 925), 680, 1800);
+  const stdUnderbust = Math.round(bustMm * 0.838);
+  const underbustMm = clamp(
+    finiteNum(userParams.underbustMm, stdUnderbust),
+    Math.max(440, Math.round(bustMm * 0.60)),
+    Math.round(bustMm * 0.98)
+  );
+  const cupDeltaMm = (bustMm - underbustMm) - (bustMm - stdUnderbust);
+  const frameBustMm = clamp(Math.round(underbustMm / 0.838), Math.round(bustMm * 0.78), Math.round(bustMm * 1.06));
+
   const waistMm = clamp(finiteNum(userParams.waistMm, Math.round(bustMm * 0.78)), 500, Math.max(540, bustMm + 60));
   const lengthMm = clamp(finiteNum(userParams.lengthMm ?? userParams.bodiceLengthMm, 415), 310, 720);
-  const shoulderWidthMm = clamp(finiteNum(userParams.shoulderWidthMm, Math.round(bustMm * 0.415)), 280, 540);
-  const bustSpanMm = clamp(finiteNum(userParams.bustSpanMm, Math.round(bustMm * 0.20)), 135, 300);
+  const shoulderWidthMm = clamp(finiteNum(userParams.shoulderWidthMm, Math.round(frameBustMm * 0.415)), 280, 540);
+  const bustSpanMm = clamp(finiteNum(userParams.bustSpanMm, Math.round(frameBustMm * 0.20)), 135, 300);
   const neckDropMm = clamp(finiteNum(userParams.frontNeckDropMm ?? userParams.neckDropMm, 95), 40, 185);
   const easeMm = clamp(finiteNum(userParams.easeMm, 36), 0, 260);
   const seamAllowance = clamp(finiteNum(userParams.seamAllowance, 12), 0, 60);
 
   const p = {
     chestMm: bustMm,
+    underbustMm,
     waistMm,
     lengthMm,
     shoulderWidthMm,
@@ -559,6 +596,9 @@ export function generatePrincessBodicePattern(userParams = {}) {
   const sa = seamAllowance;
   const halfBust = (bustMm + easeMm) * 0.5;
   const halfWaist = (waistMm + easeMm * 0.55) * 0.5;
+  const fbaFrontShift = clamp(cupDeltaMm * 0.28, -20, 42);
+  const frontBustHalf = halfBust + fbaFrontShift;
+  const backBustHalf = Math.max(shoulderWidthMm + 16, 2 * halfBust - frontBustHalf);
   const shoulderDrop = 20;
   const armholeDepth = clamp(Math.round(lengthMm * 0.46), 155, 260);
   const sideLen = Math.max(135, lengthMm - armholeDepth);
@@ -642,15 +682,18 @@ export function generatePrincessBodicePattern(userParams = {}) {
     centerFront.edges[2].curve
   );
 
-  // Side Front Panel (contoured bust cup curve matching CF princess seam + ease)
+  // Side Front & Side Back Panels (cup-projection aware bust curve + frame-balanced back)
   const outerShW = Math.max(24, shoulderWidthMm * 0.5 - midShHalf);
   const sfWaistW = Math.max(48, halfWaist * 0.5 - cfWaistHalf);
-  const sfBustW = Math.max(sfWaistW + 18, halfBust * 0.5 - cfBustHalf + 16);
+  const sfBustW = Math.max(sfWaistW + 14, frontBustHalf * 0.5 - cfBustHalf + 16);
+  const sbBustW = Math.max(sfWaistW + 10, backBustHalf * 0.5 - cfBustHalf + 8);
+  const frontPrincessEaseRatio = clamp(1.035 + cupDeltaMm * 0.00032, 1.012, 1.075);
+  const truedSideSeamLen = Math.hypot(sbBustW - sfWaistW, sideLen);
 
   const buildSidePanel = (id, name, isBack, isLeft, posX, posY, x3D, z3D) => {
     const shY0 = shoulderDrop * 0.5;
     const shY1 = shoulderDrop;
-    const targetCurveLen = isBack ? cfPrincessLen * 0.97 : cfPrincessLen * 1.035;
+    const targetCurveLen = isBack ? cfPrincessLen * 0.97 : cfPrincessLen * frontPrincessEaseRatio;
     // Solve princess bust/blade bow `bowX` (extending leftward `-bowX` into princess fullness)
     const baseX = 36;
     const evalCurveLen = (bow) =>
@@ -665,21 +708,25 @@ export function generatePrincessBodicePattern(userParams = {}) {
       );
 
     let bow = 8;
-    let hiBow = 85;
+    let hiBow = 95;
     for (let it = 0; it < 22; it++) {
       const mid = (bow + hiBow) * 0.5;
       if (evalCurveLen(mid) < targetCurveLen) bow = mid;
       else hiBow = mid;
     }
     const finalBow = (bow + hiBow) * 0.5;
-    const wBust = isBack ? Math.max(sfWaistW + 12, sfBustW - 8) : sfBustW;
+    const wBust = isBack ? sbBustW : sfBustW;
+    const wTaper = wBust - sfWaistW;
+    const outerSideDrop = isBack
+      ? sideLen
+      : Math.sqrt(Math.max(60 * 60, truedSideSeamLen * truedSideSeamLen - wTaper * wTaper));
 
     // Right-oriented points (CCW in y-down: top-left -> top-right -> armhole -> waist-right -> waist-left)
     const rawPts = [
       { x: baseX, y: shY0 },
       { x: baseX + outerShW, y: shY1 },
       { x: baseX + wBust, y: armholeDepth },
-      { x: baseX + sfWaistW, y: lengthMm },
+      { x: baseX + sfWaistW, y: Number((armholeDepth + outerSideDrop).toFixed(2)) },
       { x: baseX, y: lengthMm },
     ];
     const armCurve = {
@@ -1210,17 +1257,25 @@ export function generatePencilSkirtPattern(userParams = {}) {
 export function generateFitAndFlareDressPattern(userParams = {}) {
   userParams = userParams && typeof userParams === 'object' ? userParams : {};
   const bustMm = clamp(finiteNum(userParams.chestMm ?? userParams.bustMm, 925), 680, 1800);
+  const stdUnderbust = Math.round(bustMm * 0.838);
+  const underbustMm = clamp(
+    finiteNum(userParams.underbustMm, stdUnderbust),
+    Math.max(440, Math.round(bustMm * 0.60)),
+    Math.round(bustMm * 0.98)
+  );
+  const frameBustMm = clamp(Math.round(underbustMm / 0.838), Math.round(bustMm * 0.78), Math.round(bustMm * 1.06));
   const waistMm = clamp(finiteNum(userParams.waistMm, Math.round(bustMm * 0.78)), 520, Math.max(560, bustMm + 60));
   const hipMm = clamp(Math.max(finiteNum(userParams.hipMm, 1000), waistMm + 40), 600, 2100);
   const bodiceLengthMm = clamp(finiteNum(userParams.lengthMm ?? userParams.bodiceLengthMm, 415), 320, 620);
   const skirtLengthMm = clamp(finiteNum(userParams.heightMm ?? userParams.skirtLengthMm, 540), 320, 980);
-  const shoulderWidthMm = clamp(finiteNum(userParams.shoulderWidthMm, Math.round(bustMm * 0.40)), 280, 520);
+  const shoulderWidthMm = clamp(finiteNum(userParams.shoulderWidthMm, Math.round(frameBustMm * 0.40)), 280, 520);
   const flareMm = clamp(finiteNum(userParams.hemWidthMm ?? userParams.flareMm, 145), 40, 360);
   const easeMm = clamp(finiteNum(userParams.easeMm, 42), 0, 260);
   const seamAllowance = clamp(finiteNum(userParams.seamAllowance, 12), 0, 60);
 
   const bodice = generateWomensBodiceSloper({
     chestMm: bustMm,
+    underbustMm,
     waistMm,
     lengthMm: bodiceLengthMm,
     shoulderWidthMm,
@@ -1251,6 +1306,7 @@ export function generateFitAndFlareDressPattern(userParams = {}) {
 
   const p = {
     chestMm: bustMm,
+    underbustMm,
     waistMm,
     hipMm,
     lengthMm: bodiceLengthMm,

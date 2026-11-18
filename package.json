@@ -1,7 +1,7 @@
 {
-  "name": "pattern-studio-v2",
+  "name": "sewcad",
   "version": "2.0.0",
-  "description": "Zero-dependency 2D/3D pattern CAD, XPBD cloth draping, procedural PBR textile authoring, STL unwrapping, and 1:1 physical cut-and-sew production studio.",
+  "description": "SewCAD — Women's 2D/3D garment pattern CAD, XPBD cloth draping, procedural PBR textiles, STL cover unwrapping, and 1:1 printable cut-and-sew production studio.",
   "type": "module",
   "main": "./src/core/index.mjs",
   "engines": {
